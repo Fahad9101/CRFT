@@ -79,6 +79,143 @@ function getGlobalRating(total) {
   return 'Near Consultant'
 }
 
+function getFeedbackPhrases(scores) {
+  const phrases = []
+
+  if (scores.problemFraming <= 2) {
+    phrases.push('Refine the initial clinical question before moving to the differential.')
+  }
+  if (scores.syndromeIdentification <= 2) {
+    phrases.push('Anchor the discussion in physiology first, then name the syndrome.')
+  }
+  if (scores.differentialDiagnosis <= 2) {
+    phrases.push('Structure the differential by common, dangerous, and treatable causes.')
+  }
+  if (scores.dataInterpretation <= 2) {
+    phrases.push('Use trends and context rather than isolated values.')
+  }
+  if (scores.anticipation <= 2) {
+    phrases.push('Add a prediction step: what is likely to happen in the next 12–24 hours?')
+  }
+  if (scores.reassessment <= 2) {
+    phrases.push('Reassess the working diagnosis actively as new data arrives.')
+  }
+
+  const strong = Object.entries(scores)
+    .filter(([, value]) => value >= 4)
+    .map(([key]) => domains.find((d) => d.key === key)?.title)
+    .filter(Boolean)
+
+  if (strong.length > 0) {
+    phrases.push(`Particular strength shown in: ${strong.join(', ')}.`)
+  }
+
+  if (phrases.length === 0) {
+    phrases.push('Good overall structure. Continue deepening anticipation, prioritization, and consultant-level synthesis.')
+  }
+
+  return phrases
+}
+
+function RadarChart({ scores }) {
+  const size = 300
+  const center = size / 2
+  const radius = 105
+  const levels = 4
+  const keys = domains.map((d) => d.key)
+
+  const pointsForLevel = (level) => {
+    return keys
+      .map((_, i) => {
+        const angle = (Math.PI * 2 * i) / keys.length - Math.PI / 2
+        const r = (radius * level) / levels
+        const x = center + Math.cos(angle) * r
+        const y = center + Math.sin(angle) * r
+        return `${x},${y}`
+      })
+      .join(' ')
+  }
+
+  const dataPoints = keys
+    .map((key, i) => {
+      const angle = (Math.PI * 2 * i) / keys.length - Math.PI / 2
+      const r = (radius * scores[key]) / levels
+      const x = center + Math.cos(angle) * r
+      const y = center + Math.sin(angle) * r
+      return `${x},${y}`
+    })
+    .join(' ')
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {[1, 2, 3, 4].map((level) => (
+          <polygon
+            key={level}
+            points={pointsForLevel(level)}
+            fill="none"
+            stroke="#d1d5db"
+            strokeWidth="1"
+          />
+        ))}
+
+        {keys.map((key, i) => {
+          const angle = (Math.PI * 2 * i) / keys.length - Math.PI / 2
+          const x = center + Math.cos(angle) * radius
+          const y = center + Math.sin(angle) * radius
+          return (
+            <line
+              key={key}
+              x1={center}
+              y1={center}
+              x2={x}
+              y2={y}
+              stroke="#d1d5db"
+              strokeWidth="1"
+            />
+          )
+        })}
+
+        <polygon
+          points={dataPoints}
+          fill="rgba(12, 74, 110, 0.18)"
+          stroke="#0c4a6e"
+          strokeWidth="2"
+        />
+
+        {keys.map((key, i) => {
+          const angle = (Math.PI * 2 * i) / keys.length - Math.PI / 2
+          const r = (radius * scores[key]) / levels
+          const x = center + Math.cos(angle) * r
+          const y = center + Math.sin(angle) * r
+          return <circle key={key} cx={x} cy={y} r="4" fill="#0c4a6e" />
+        })}
+
+        {domains.map((domain, i) => {
+          const angle = (Math.PI * 2 * i) / domains.length - Math.PI / 2
+          const labelRadius = radius + 22
+          const x = center + Math.cos(angle) * labelRadius
+          const y = center + Math.sin(angle) * labelRadius
+
+          return (
+            <text
+              key={domain.key}
+              x={x}
+              y={y}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="10"
+              fill="#334155"
+            >
+              {domain.title.replace(' ', '\n')}
+            </text>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 export default function App() {
   const [resident, setResident] = useState('')
   const [evaluator, setEvaluator] = useState('')
@@ -88,7 +225,6 @@ export default function App() {
   const [strengths, setStrengths] = useState('')
   const [improvements, setImprovements] = useState('')
 
-  // 🔵 LOAD FROM LOCAL STORAGE
   useEffect(() => {
     const saved = localStorage.getItem('rubricData')
     if (saved) {
@@ -103,7 +239,6 @@ export default function App() {
     }
   }, [])
 
-  // 🔵 SAVE TO LOCAL STORAGE
   useEffect(() => {
     const data = {
       resident,
@@ -122,28 +257,78 @@ export default function App() {
   }, [scores])
 
   const globalRating = getGlobalRating(total)
+  const feedbackPhrases = useMemo(() => getFeedbackPhrases(scores), [scores])
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
-      <h1 style={{ marginBottom: 8 }}>Resident Assessment Rubric</h1>
-      <p style={{ marginTop: 0, color: '#555' }}>
-        Consultant-style clinical reasoning assessment tool
-      </p>
+    <div
+      style={{
+        maxWidth: 1180,
+        margin: '0 auto',
+        padding: 16,
+        fontFamily: 'Arial, sans-serif',
+        color: '#0f172a',
+      }}
+    >
+      <div
+        style={{
+          background: 'linear-gradient(135deg, #0c4a6e, #0f766e)',
+          color: 'white',
+          borderRadius: 18,
+          padding: 18,
+          marginBottom: 18,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            gap: 14,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: 14,
+              background: 'rgba(255,255,255,0.16)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 'bold',
+              fontSize: 14,
+              letterSpacing: 0.4,
+            }}
+          >
+            KFSHRC
+          </div>
 
-      {/* 🔵 BUTTONS */}
-      <div style={{ marginTop: 10 }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <h1 style={{ margin: 0, fontSize: 'clamp(28px, 5vw, 44px)' }}>
+              Resident Assessment Rubric
+            </h1>
+            <p style={{ margin: '6px 0 0 0', opacity: 0.92, fontSize: 16 }}>
+              Consultant-style clinical reasoning tool · KFSHRC-style edition
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
         <button
           onClick={() => {
             localStorage.removeItem('rubricData')
             window.location.reload()
           }}
           style={{
-            padding: '8px 12px',
+            padding: '10px 14px',
             background: '#e11d48',
             color: 'white',
             border: 'none',
-            borderRadius: 6,
-            marginRight: 10,
+            borderRadius: 10,
+            fontWeight: 600,
+            cursor: 'pointer',
           }}
         >
           Reset
@@ -152,53 +337,117 @@ export default function App() {
         <button
           onClick={() => window.print()}
           style={{
-            padding: '8px 12px',
+            padding: '10px 14px',
             background: '#2563eb',
             color: 'white',
             border: 'none',
-            borderRadius: 6,
+            borderRadius: 10,
+            fontWeight: 600,
+            cursor: 'pointer',
           }}
         >
           Print / Save PDF
         </button>
       </div>
 
-      {/* 🔵 INPUTS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 24 }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 12,
+          marginBottom: 18,
+        }}
+      >
         <div>
           <label><strong>Resident</strong></label>
-          <input value={resident} onChange={(e) => setResident(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
+          <input
+            value={resident}
+            onChange={(e) => setResident(e.target.value)}
+            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+          />
         </div>
 
         <div>
           <label><strong>Evaluator</strong></label>
-          <input value={evaluator} onChange={(e) => setEvaluator(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
+          <input
+            value={evaluator}
+            onChange={(e) => setEvaluator(e.target.value)}
+            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+          />
         </div>
 
         <div>
           <label><strong>Rotation</strong></label>
-          <input value={rotation} onChange={(e) => setRotation(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
+          <input
+            value={rotation}
+            onChange={(e) => setRotation(e.target.value)}
+            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+          />
         </div>
 
         <div>
           <label><strong>Case</strong></label>
-          <input value={caseName} onChange={(e) => setCaseName(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
+          <input
+            value={caseName}
+            onChange={(e) => setCaseName(e.target.value)}
+            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+          />
         </div>
       </div>
 
-      {/* 🔵 SCORE SUMMARY */}
-      <div style={{ marginTop: 24, padding: 16, border: '1px solid #ddd', borderRadius: 10, background: '#fafafa' }}>
-        <strong>Total Score:</strong> {total} / 24
-        <div style={{ marginTop: 8 }}>
-          <strong>Global Rating:</strong> {globalRating}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: 16,
+          marginBottom: 18,
+        }}
+      >
+        <div
+          style={{
+            border: '1px solid #dbe4ee',
+            borderRadius: 16,
+            padding: 18,
+            background: '#f8fafc',
+          }}
+        >
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Summary</h2>
+          <p style={{ margin: '8px 0' }}><strong>Total Score:</strong> {total} / 24</p>
+          <p style={{ margin: '8px 0' }}><strong>Global Rating:</strong> {globalRating}</p>
+          <p style={{ margin: '8px 0' }}>
+            <strong>Interpretation:</strong>{' '}
+            {globalRating === 'Junior' && 'Reactive and fragmented reasoning pattern.'}
+            {globalRating === 'Intermediate' && 'Structured thinking is emerging but inconsistent.'}
+            {globalRating === 'Senior' && 'Reasoning is organized and mostly predictive.'}
+            {globalRating === 'Near Consultant' && 'Integrated, anticipatory, consultant-level reasoning.'}
+          </p>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid #dbe4ee',
+            borderRadius: 16,
+            padding: 18,
+            background: '#ffffff',
+          }}
+        >
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Performance Radar</h2>
+          <RadarChart scores={scores} />
         </div>
       </div>
 
-      {/* 🔵 DOMAINS */}
-      <div style={{ marginTop: 24, display: 'grid', gap: 16 }}>
+      <div style={{ display: 'grid', gap: 14, marginBottom: 18 }}>
         {domains.map((domain) => (
-          <div key={domain.key} style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16 }}>
-            <h3 style={{ marginTop: 0 }}>{domain.title}</h3>
+          <div
+            key={domain.key}
+            style={{
+              border: '1px solid #dbe4ee',
+              borderRadius: 16,
+              padding: 16,
+              background: '#ffffff',
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>{domain.title}</h3>
 
             <select
               value={scores[domain.key]}
@@ -208,7 +457,12 @@ export default function App() {
                   [domain.key]: Number(e.target.value),
                 }))
               }
-              style={{ width: '100%', padding: 10, marginTop: 8 }}
+              style={{
+                width: '100%',
+                padding: 12,
+                borderRadius: 10,
+                border: '1px solid #cbd5e1',
+              }}
             >
               {[1, 2, 3, 4].map((level) => (
                 <option key={level} value={level}>
@@ -217,23 +471,77 @@ export default function App() {
               ))}
             </select>
 
-            <p style={{ marginBottom: 0, marginTop: 10, color: '#444' }}>
+            <p style={{ marginTop: 10, marginBottom: 0, color: '#475569' }}>
               Current level: {domain.levels[scores[domain.key]]}
             </p>
           </div>
         ))}
       </div>
 
-      {/* 🔵 TEXT AREAS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginTop: 24 }}>
+      <div
+        style={{
+          border: '1px solid #dbe4ee',
+          borderRadius: 16,
+          padding: 18,
+          background: '#f8fafc',
+          marginBottom: 18,
+        }}
+      >
+        <h2 style={{ marginTop: 0, fontSize: 20 }}>Auto-Generated Feedback Phrases</h2>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {feedbackPhrases.map((phrase, index) => (
+            <div
+              key={index}
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                background: 'white',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              {phrase}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 16,
+        }}
+      >
         <div>
           <label><strong>Strengths</strong></label>
-          <textarea value={strengths} onChange={(e) => setStrengths(e.target.value)} rows={6} style={{ width: '100%', padding: 10, marginTop: 6 }} />
+          <textarea
+            value={strengths}
+            onChange={(e) => setStrengths(e.target.value)}
+            rows={6}
+            style={{
+              width: '100%',
+              padding: 12,
+              marginTop: 6,
+              borderRadius: 10,
+              border: '1px solid #cbd5e1',
+            }}
+          />
         </div>
 
         <div>
           <label><strong>Improvement Priorities</strong></label>
-          <textarea value={improvements} onChange={(e) => setImprovements(e.target.value)} rows={6} style={{ width: '100%', padding: 10, marginTop: 6 }} />
+          <textarea
+            value={improvements}
+            onChange={(e) => setImprovements(e.target.value)}
+            rows={6}
+            style={{
+              width: '100%',
+              padding: 12,
+              marginTop: 6,
+              borderRadius: 10,
+              border: '1px solid #cbd5e1',
+            }}
+          />
         </div>
       </div>
     </div>
