@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 
 const domains = [
   {
@@ -88,6 +88,35 @@ export default function App() {
   const [strengths, setStrengths] = useState('')
   const [improvements, setImprovements] = useState('')
 
+  // 🔵 LOAD FROM LOCAL STORAGE
+  useEffect(() => {
+    const saved = localStorage.getItem('rubricData')
+    if (saved) {
+      const data = JSON.parse(saved)
+      setResident(data.resident || '')
+      setEvaluator(data.evaluator || '')
+      setRotation(data.rotation || '')
+      setCaseName(data.caseName || '')
+      setScores(data.scores || initialScores)
+      setStrengths(data.strengths || '')
+      setImprovements(data.improvements || '')
+    }
+  }, [])
+
+  // 🔵 SAVE TO LOCAL STORAGE
+  useEffect(() => {
+    const data = {
+      resident,
+      evaluator,
+      rotation,
+      caseName,
+      scores,
+      strengths,
+      improvements,
+    }
+    localStorage.setItem('rubricData', JSON.stringify(data))
+  }, [resident, evaluator, rotation, caseName, scores, strengths, improvements])
+
   const total = useMemo(() => {
     return Object.values(scores).reduce((sum, value) => sum + Number(value), 0)
   }, [scores])
@@ -101,44 +130,63 @@ export default function App() {
         Consultant-style clinical reasoning assessment tool
       </p>
 
+      {/* 🔵 BUTTONS */}
+      <div style={{ marginTop: 10 }}>
+        <button
+          onClick={() => {
+            localStorage.removeItem('rubricData')
+            window.location.reload()
+          }}
+          style={{
+            padding: '8px 12px',
+            background: '#e11d48',
+            color: 'white',
+            border: 'none',
+            borderRadius: 6,
+            marginRight: 10,
+          }}
+        >
+          Reset
+        </button>
+
+        <button
+          onClick={() => window.print()}
+          style={{
+            padding: '8px 12px',
+            background: '#2563eb',
+            color: 'white',
+            border: 'none',
+            borderRadius: 6,
+          }}
+        >
+          Print / Save PDF
+        </button>
+      </div>
+
+      {/* 🔵 INPUTS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 24 }}>
         <div>
           <label><strong>Resident</strong></label>
-          <input
-            value={resident}
-            onChange={(e) => setResident(e.target.value)}
-            style={{ width: '100%', padding: 10, marginTop: 6 }}
-          />
+          <input value={resident} onChange={(e) => setResident(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
         </div>
 
         <div>
           <label><strong>Evaluator</strong></label>
-          <input
-            value={evaluator}
-            onChange={(e) => setEvaluator(e.target.value)}
-            style={{ width: '100%', padding: 10, marginTop: 6 }}
-          />
+          <input value={evaluator} onChange={(e) => setEvaluator(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
         </div>
 
         <div>
           <label><strong>Rotation</strong></label>
-          <input
-            value={rotation}
-            onChange={(e) => setRotation(e.target.value)}
-            style={{ width: '100%', padding: 10, marginTop: 6 }}
-          />
+          <input value={rotation} onChange={(e) => setRotation(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
         </div>
 
         <div>
           <label><strong>Case</strong></label>
-          <input
-            value={caseName}
-            onChange={(e) => setCaseName(e.target.value)}
-            style={{ width: '100%', padding: 10, marginTop: 6 }}
-          />
+          <input value={caseName} onChange={(e) => setCaseName(e.target.value)} style={{ width: '100%', padding: 10, marginTop: 6 }} />
         </div>
       </div>
 
+      {/* 🔵 SCORE SUMMARY */}
       <div style={{ marginTop: 24, padding: 16, border: '1px solid #ddd', borderRadius: 10, background: '#fafafa' }}>
         <strong>Total Score:</strong> {total} / 24
         <div style={{ marginTop: 8 }}>
@@ -146,6 +194,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* 🔵 DOMAINS */}
       <div style={{ marginTop: 24, display: 'grid', gap: 16 }}>
         {domains.map((domain) => (
           <div key={domain.key} style={{ border: '1px solid #ddd', borderRadius: 10, padding: 16 }}>
@@ -175,25 +224,16 @@ export default function App() {
         ))}
       </div>
 
+      {/* 🔵 TEXT AREAS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginTop: 24 }}>
         <div>
           <label><strong>Strengths</strong></label>
-          <textarea
-            value={strengths}
-            onChange={(e) => setStrengths(e.target.value)}
-            rows={6}
-            style={{ width: '100%', padding: 10, marginTop: 6 }}
-          />
+          <textarea value={strengths} onChange={(e) => setStrengths(e.target.value)} rows={6} style={{ width: '100%', padding: 10, marginTop: 6 }} />
         </div>
 
         <div>
           <label><strong>Improvement Priorities</strong></label>
-          <textarea
-            value={improvements}
-            onChange={(e) => setImprovements(e.target.value)}
-            rows={6}
-            style={{ width: '100%', padding: 10, marginTop: 6 }}
-          />
+          <textarea value={improvements} onChange={(e) => setImprovements(e.target.value)} rows={6} style={{ width: '100%', padding: 10, marginTop: 6 }} />
         </div>
       </div>
     </div>
