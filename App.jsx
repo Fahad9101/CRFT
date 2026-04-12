@@ -603,7 +603,7 @@ export default function App() {
           marginBottom: 8,
         }}
       >
-        MADE IN KFSHRC-J
+        Developed at KFSHRC-J
       </div>
     </div>
   )
