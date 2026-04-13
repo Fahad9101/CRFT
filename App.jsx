@@ -90,6 +90,15 @@ const initialScores = {
   reassessment: 0,
 }
 
+const teachingPrompts = [
+  'What is the actual clinical question in this case?',
+  'What syndrome or physiology best explains the presentation?',
+  'What are the common, dangerous, and treatable causes here?',
+  'Which data points support the current working diagnosis, and which do not fit?',
+  'What is most likely to happen in the next 12–24 hours if nothing changes?',
+  'What would make you reassess and update your model?',
+]
+
 function getGlobalRating(total) {
   if (total === 0) return ''
   if (total <= 9) return 'Junior'
@@ -125,31 +134,121 @@ function getAutoStrengths(scores) {
   return strengths
 }
 
-function getAutoRecommendations(scores) {
+function getPriorityRecommendations(scores) {
   if (Object.values(scores).every((v) => v === 0)) return []
 
-  const recs = []
+  const candidates = [
+    {
+      key: 'problemFraming',
+      score: scores.problemFraming,
+      text: 'Before discussing causes, first state the exact clinical question being answered in this case.',
+    },
+    {
+      key: 'syndromeIdentification',
+      score: scores.syndromeIdentification,
+      text: 'Pause before naming a disease and identify the syndrome or physiology first.',
+    },
+    {
+      key: 'differentialDiagnosis',
+      score: scores.differentialDiagnosis,
+      text: 'Restructure the differential into common, dangerous, and treatable causes, then rank them.',
+    },
+    {
+      key: 'dataInterpretation',
+      score: scores.dataInterpretation,
+      text: 'Interpret data using trends, timing, and clinical context rather than repeating individual values.',
+    },
+    {
+      key: 'anticipation',
+      score: scores.anticipation,
+      text: 'Add a prediction step: what may happen next, and what complication must be prevented?',
+    },
+    {
+      key: 'reassessment',
+      score: scores.reassessment,
+      text: 'Reassess the diagnosis and plan explicitly when new information appears.',
+    },
+  ]
 
-  if (scores.problemFraming <= 2 && scores.problemFraming > 0) {
-    recs.push('Before discussing causes, first state the exact clinical question being answered in this case.')
-  }
-  if (scores.syndromeIdentification <= 2 && scores.syndromeIdentification > 0) {
-    recs.push('Pause before naming a disease and identify the syndrome or physiology first.')
-  }
-  if (scores.differentialDiagnosis <= 2 && scores.differentialDiagnosis > 0) {
-    recs.push('Restructure the differential into common, dangerous, and treatable causes, then rank them.')
-  }
-  if (scores.dataInterpretation <= 2 && scores.dataInterpretation > 0) {
-    recs.push('Interpret data using trends, timing, and clinical context rather than repeating individual values.')
-  }
-  if (scores.anticipation <= 2 && scores.anticipation > 0) {
-    recs.push('Add a prediction step: what may happen next, and what complication must be prevented?')
-  }
-  if (scores.reassessment <= 2 && scores.reassessment > 0) {
-    recs.push('Reassess the diagnosis and plan explicitly when new information appears.')
-  }
+  return candidates
+    .filter((item) => item.score > 0)
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 2)
+    .map((item) => item.text)
+}
 
-  return recs
+function getOneLineSummary(scores, total, globalRating) {
+  if (total === 0) return ''
+
+  const strong = Object.entries(scores)
+    .filter(([, value]) => value >= 3)
+    .map(([key]) => domains.find((d) => d.key === key)?.title)
+    .filter(Boolean)
+
+  const weak = Object.entries(scores)
+    .filter(([, value]) => value > 0 && value <= 2)
+    .map(([key]) => domains.find((d) => d.key === key)?.title)
+    .filter(Boolean)
+
+  const strongText = strong.length ? strong.slice(0, 2).join(' and ').toLowerCase() : 'selected domains'
+  const weakText = weak.length ? weak.slice(0, 2).join(' and ').toLowerCase() : 'higher-order reasoning'
+
+  return `Overall, this assessment suggests a ${globalRating.toLowerCase()} pattern, with relative strength in ${strongText} and the greatest need for development in ${weakText}.`
+}
+
+function getConsultantReport({
+  resident,
+  evaluator,
+  rotation,
+  caseName,
+  scores,
+  total,
+  globalRating,
+  strengths,
+  priorities,
+}) {
+  if (total === 0) return ''
+
+  const strongDomains = Object.entries(scores)
+    .filter(([, value]) => value >= 3)
+    .map(([key]) => domains.find((d) => d.key === key)?.title.toLowerCase())
+    .filter(Boolean)
+
+  const weakDomains = Object.entries(scores)
+    .filter(([, value]) => value > 0 && value <= 2)
+    .map(([key]) => domains.find((d) => d.key === key)?.title.toLowerCase())
+    .filter(Boolean)
+
+  const contextBits = [
+    resident ? `Resident: ${resident}` : null,
+    evaluator ? `Evaluator: ${evaluator}` : null,
+    rotation ? `Rotation: ${rotation}` : null,
+    caseName ? `Case: ${caseName}` : null,
+  ].filter(Boolean)
+
+  const intro = contextBits.length ? `${contextBits.join(' · ')}.` : ''
+
+  const para1 = `This CRFT assessment places the learner in the ${globalRating} range with a total score of ${total}/24. ${
+    strongDomains.length
+      ? `Relative strengths were observed in ${strongDomains.slice(0, 3).join(', ')}.`
+      : 'No clear strength domains were established in this assessment.'
+  }`
+
+  const para2 = `${
+    weakDomains.length
+      ? `The main areas for improvement were ${weakDomains.slice(0, 3).join(', ')}.`
+      : 'No major deficit domains were identified among the assessed categories.'
+  } ${
+    priorities.length
+      ? `The most useful next steps are: ${priorities.join(' ')}`
+      : ''
+  }`
+
+  const para3 = strengths.length
+    ? `In practical terms, the learner is showing signs of developing structured clinical reasoning, and feedback should now focus on deepening consistency, prioritization, and anticipatory thinking.`
+    : `At this stage, feedback should focus on helping the learner build a clearer structure for case framing, physiological reasoning, and dynamic reassessment.`
+
+  return [intro, para1, para2, para3].filter(Boolean).join('\n\n')
 }
 
 function RadarChart({ scores }) {
@@ -259,6 +358,9 @@ export default function App() {
   const [scores, setScores] = useState(initialScores)
   const [strengthsNotes, setStrengthsNotes] = useState('')
   const [improvementsNotes, setImprovementsNotes] = useState('')
+  const [quickMode, setQuickMode] = useState(false)
+  const [showTeachingMode, setShowTeachingMode] = useState(false)
+  const [showConsultantReport, setShowConsultantReport] = useState(true)
 
   useEffect(() => {
     const saved = localStorage.getItem('rubricData')
@@ -271,6 +373,11 @@ export default function App() {
       setScores(data.scores || initialScores)
       setStrengthsNotes(data.strengthsNotes || '')
       setImprovementsNotes(data.improvementsNotes || '')
+      setQuickMode(data.quickMode || false)
+      setShowTeachingMode(data.showTeachingMode || false)
+      setShowConsultantReport(
+        typeof data.showConsultantReport === 'boolean' ? data.showConsultantReport : true
+      )
     }
   }, [])
 
@@ -283,9 +390,23 @@ export default function App() {
       scores,
       strengthsNotes,
       improvementsNotes,
+      quickMode,
+      showTeachingMode,
+      showConsultantReport,
     }
     localStorage.setItem('rubricData', JSON.stringify(data))
-  }, [resident, evaluator, rotation, caseName, scores, strengthsNotes, improvementsNotes])
+  }, [
+    resident,
+    evaluator,
+    rotation,
+    caseName,
+    scores,
+    strengthsNotes,
+    improvementsNotes,
+    quickMode,
+    showTeachingMode,
+    showConsultantReport,
+  ])
 
   const total = useMemo(() => {
     return Object.values(scores).reduce((sum, value) => sum + Number(value), 0)
@@ -293,7 +414,51 @@ export default function App() {
 
   const globalRating = getGlobalRating(total)
   const autoStrengths = useMemo(() => getAutoStrengths(scores), [scores])
-  const autoRecommendations = useMemo(() => getAutoRecommendations(scores), [scores])
+  const priorityRecommendations = useMemo(() => getPriorityRecommendations(scores), [scores])
+  const oneLineSummary = useMemo(
+    () => getOneLineSummary(scores, total, globalRating),
+    [scores, total, globalRating]
+  )
+
+  const consultantReport = useMemo(
+    () =>
+      getConsultantReport({
+        resident,
+        evaluator,
+        rotation,
+        caseName,
+        scores,
+        total,
+        globalRating,
+        strengths: autoStrengths,
+        priorities: priorityRecommendations,
+      }),
+    [
+      resident,
+      evaluator,
+      rotation,
+      caseName,
+      scores,
+      total,
+      globalRating,
+      autoStrengths,
+      priorityRecommendations,
+    ]
+  )
+
+  const nonZeroScores = Object.values(scores).filter((v) => v > 0)
+  const highestScore = nonZeroScores.length ? Math.max(...nonZeroScores) : null
+  const lowestScore = nonZeroScores.length ? Math.min(...nonZeroScores) : null
+
+  const copyConsultantReport = async () => {
+    if (!consultantReport) return
+    try {
+      await navigator.clipboard.writeText(consultantReport)
+      alert('Consultant report copied.')
+    } catch {
+      alert('Copy failed. Please copy manually.')
+    }
+  }
 
   return (
     <div
@@ -315,9 +480,10 @@ export default function App() {
           boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 'clamp(28px, 5vw, 44px)' }}>
-          Resident Assessment Feedback Tool
-        </h1>
+        <h1 style={{ margin: 0, fontSize: 'clamp(28px, 5vw, 44px)' }}>CRFT</h1>
+        <div style={{ marginTop: 6, opacity: 0.95, fontSize: 15 }}>
+          Clinical Reasoning Feedback Tool
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -331,6 +497,9 @@ export default function App() {
             setScores(initialScores)
             setStrengthsNotes('')
             setImprovementsNotes('')
+            setQuickMode(false)
+            setShowTeachingMode(false)
+            setShowConsultantReport(true)
           }}
           style={{
             padding: '10px 14px',
@@ -359,52 +528,99 @@ export default function App() {
         >
           Print / Save PDF
         </button>
+
+        <button
+          onClick={() => setQuickMode(!quickMode)}
+          style={{
+            padding: '10px 14px',
+            background: quickMode ? '#0f766e' : '#475569',
+            color: 'white',
+            border: 'none',
+            borderRadius: 10,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          {quickMode ? 'Exit Quick Mode' : 'Quick Mode'}
+        </button>
+
+        <button
+          onClick={() => setShowTeachingMode(!showTeachingMode)}
+          style={{
+            padding: '10px 14px',
+            background: showTeachingMode ? '#7c3aed' : '#475569',
+            color: 'white',
+            border: 'none',
+            borderRadius: 10,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          {showTeachingMode ? 'Hide Teaching Mode' : 'Case Teaching Mode'}
+        </button>
+
+        <button
+          onClick={() => setShowConsultantReport(!showConsultantReport)}
+          style={{
+            padding: '10px 14px',
+            background: showConsultantReport ? '#0f766e' : '#475569',
+            color: 'white',
+            border: 'none',
+            borderRadius: 10,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          {showConsultantReport ? 'Hide Report Generator' : 'Show Report Generator'}
+        </button>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: 12,
-          marginBottom: 18,
-        }}
-      >
-        <div>
-          <label><strong>Resident</strong></label>
-          <input
-            value={resident}
-            onChange={(e) => setResident(e.target.value)}
-            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
-          />
-        </div>
+      {!quickMode && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 12,
+            marginBottom: 18,
+          }}
+        >
+          <div>
+            <label><strong>Resident</strong></label>
+            <input
+              value={resident}
+              onChange={(e) => setResident(e.target.value)}
+              style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+            />
+          </div>
 
-        <div>
-          <label><strong>Evaluator</strong></label>
-          <input
-            value={evaluator}
-            onChange={(e) => setEvaluator(e.target.value)}
-            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
-          />
-        </div>
+          <div>
+            <label><strong>Evaluator</strong></label>
+            <input
+              value={evaluator}
+              onChange={(e) => setEvaluator(e.target.value)}
+              style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+            />
+          </div>
 
-        <div>
-          <label><strong>Rotation</strong></label>
-          <input
-            value={rotation}
-            onChange={(e) => setRotation(e.target.value)}
-            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
-          />
-        </div>
+          <div>
+            <label><strong>Rotation</strong></label>
+            <input
+              value={rotation}
+              onChange={(e) => setRotation(e.target.value)}
+              style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+            />
+          </div>
 
-        <div>
-          <label><strong>Case</strong></label>
-          <input
-            value={caseName}
-            onChange={(e) => setCaseName(e.target.value)}
-            style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
-          />
+          <div>
+            <label><strong>Case</strong></label>
+            <input
+              value={caseName}
+              onChange={(e) => setCaseName(e.target.value)}
+              style={{ width: '100%', padding: 12, marginTop: 6, borderRadius: 10, border: '1px solid #cbd5e1' }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div
         style={{
@@ -425,76 +641,168 @@ export default function App() {
           <h2 style={{ marginTop: 0, fontSize: 20 }}>Summary</h2>
           <p style={{ margin: '8px 0' }}><strong>Total Score:</strong> {total} / 24</p>
           {globalRating && <p style={{ margin: '8px 0' }}><strong>Global Rating:</strong> {globalRating}</p>}
+          {oneLineSummary && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 10,
+                background: 'white',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <strong>1-line summary:</strong> {oneLineSummary}
+            </div>
+          )}
         </div>
 
+        {!quickMode && (
+          <div
+            style={{
+              border: '1px solid #dbe4ee',
+              borderRadius: 16,
+              padding: 18,
+              background: '#ffffff',
+            }}
+          >
+            <h2 style={{ marginTop: 0, fontSize: 20 }}>Performance Radar</h2>
+            <RadarChart scores={scores} />
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gap: 14, marginBottom: 18 }}>
+        {domains.map((domain) => {
+          const score = scores[domain.key]
+          const isHighest = highestScore !== null && score === highestScore && score > 0
+          const isLowest = lowestScore !== null && score === lowestScore && score > 0
+
+          return (
+            <div
+              key={domain.key}
+              style={{
+                border: isHighest
+                  ? '2px solid #16a34a'
+                  : isLowest
+                  ? '2px solid #dc2626'
+                  : '1px solid #dbe4ee',
+                borderRadius: 16,
+                padding: 16,
+                background: isHighest
+                  ? '#f0fdf4'
+                  : isLowest
+                  ? '#fef2f2'
+                  : '#ffffff',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <h3 style={{ marginTop: 0, marginBottom: 10 }}>{domain.title}</h3>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {isHighest && (
+                    <span
+                      style={{
+                        background: '#16a34a',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Highest
+                    </span>
+                  )}
+                  {isLowest && (
+                    <span
+                      style={{
+                        background: '#dc2626',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Lowest
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <select
+                value={scores[domain.key]}
+                onChange={(e) =>
+                  setScores((prev) => ({
+                    ...prev,
+                    [domain.key]: Number(e.target.value),
+                  }))
+                }
+                style={{
+                  width: '100%',
+                  padding: 12,
+                  borderRadius: 10,
+                  border: '1px solid #cbd5e1',
+                }}
+              >
+                {[0, 1, 2, 3, 4].map((level) => (
+                  <option key={level} value={level}>
+                    {level} - {domain.levels[level]}
+                  </option>
+                ))}
+              </select>
+
+              <p style={{ marginTop: 10, marginBottom: 6, color: '#475569' }}>
+                Current level: {domain.levels[scores[domain.key]]}
+              </p>
+
+              {!quickMode && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    borderRadius: 10,
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    color: '#334155',
+                    fontSize: 14,
+                  }}
+                >
+                  <strong>Try to:</strong> {domain.clue}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {showTeachingMode && (
         <div
           style={{
             border: '1px solid #dbe4ee',
             borderRadius: 16,
             padding: 18,
-            background: '#ffffff',
+            background: '#faf5ff',
+            marginBottom: 18,
           }}
         >
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Performance Radar</h2>
-          <RadarChart scores={scores} />
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gap: 14, marginBottom: 18 }}>
-        {domains.map((domain) => (
-          <div
-            key={domain.key}
-            style={{
-              border: '1px solid #dbe4ee',
-              borderRadius: 16,
-              padding: 16,
-              background: '#ffffff',
-            }}
-          >
-            <h3 style={{ marginTop: 0, marginBottom: 10 }}>{domain.title}</h3>
-
-            <select
-              value={scores[domain.key]}
-              onChange={(e) =>
-                setScores((prev) => ({
-                  ...prev,
-                  [domain.key]: Number(e.target.value),
-                }))
-              }
-              style={{
-                width: '100%',
-                padding: 12,
-                borderRadius: 10,
-                border: '1px solid #cbd5e1',
-              }}
-            >
-              {[0, 1, 2, 3, 4].map((level) => (
-                <option key={level} value={level}>
-                  {level} - {domain.levels[level]}
-                </option>
-              ))}
-            </select>
-
-            <p style={{ marginTop: 10, marginBottom: 6, color: '#475569' }}>
-              Current level: {domain.levels[scores[domain.key]]}
-            </p>
-
-            <div
-              style={{
-                marginTop: 8,
-                padding: 12,
-                borderRadius: 10,
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                color: '#334155',
-                fontSize: 14,
-              }}
-            >
-              <strong>Try to:</strong> {domain.clue}
-            </div>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Case-Based Teaching Mode</h2>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {teachingPrompts.map((prompt, index) => (
+              <div
+                key={index}
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  background: 'white',
+                  border: '1px solid #e9d5ff',
+                }}
+              >
+                {prompt}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {autoStrengths.length > 0 && (
         <div
@@ -525,7 +833,7 @@ export default function App() {
         </div>
       )}
 
-      {autoRecommendations.length > 0 && (
+      {priorityRecommendations.length > 0 && (
         <div
           style={{
             border: '1px solid #dbe4ee',
@@ -535,9 +843,9 @@ export default function App() {
             marginBottom: 18,
           }}
         >
-          <h2 style={{ marginTop: 0, fontSize: 20 }}>Auto-Generated Recommendations</h2>
+          <h2 style={{ marginTop: 0, fontSize: 20 }}>Top 2 Priorities</h2>
           <div style={{ display: 'grid', gap: 10 }}>
-            {autoRecommendations.map((item, index) => (
+            {priorityRecommendations.map((item, index) => (
               <div
                 key={index}
                 style={{
@@ -554,46 +862,91 @@ export default function App() {
         </div>
       )}
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 16,
-          marginBottom: 40,
-        }}
-      >
-        <div>
-          <label><strong>Additional Strength Notes</strong></label>
+      {showConsultantReport && consultantReport && (
+        <div
+          style={{
+            border: '1px solid #dbe4ee',
+            borderRadius: 16,
+            padding: 18,
+            background: '#eff6ff',
+            marginBottom: 18,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <h2 style={{ marginTop: 0, fontSize: 20, marginBottom: 0 }}>Consultant Report Generator</h2>
+            <button
+              onClick={copyConsultantReport}
+              style={{
+                padding: '10px 14px',
+                background: '#1d4ed8',
+                color: 'white',
+                border: 'none',
+                borderRadius: 10,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Copy Report
+            </button>
+          </div>
           <textarea
-            value={strengthsNotes}
-            onChange={(e) => setStrengthsNotes(e.target.value)}
-            rows={6}
+            value={consultantReport}
+            readOnly
+            rows={12}
             style={{
               width: '100%',
               padding: 12,
-              marginTop: 6,
+              marginTop: 12,
               borderRadius: 10,
-              border: '1px solid #cbd5e1',
+              border: '1px solid #bfdbfe',
+              background: 'white',
             }}
           />
         </div>
+      )}
 
-        <div>
-          <label><strong>Additional Improvement Notes</strong></label>
-          <textarea
-            value={improvementsNotes}
-            onChange={(e) => setImprovementsNotes(e.target.value)}
-            rows={6}
-            style={{
-              width: '100%',
-              padding: 12,
-              marginTop: 6,
-              borderRadius: 10,
-              border: '1px solid #cbd5e1',
-            }}
-          />
+      {!quickMode && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 16,
+            marginBottom: 40,
+          }}
+        >
+          <div>
+            <label><strong>Additional Strength Notes</strong></label>
+            <textarea
+              value={strengthsNotes}
+              onChange={(e) => setStrengthsNotes(e.target.value)}
+              rows={6}
+              style={{
+                width: '100%',
+                padding: 12,
+                marginTop: 6,
+                borderRadius: 10,
+                border: '1px solid #cbd5e1',
+              }}
+            />
+          </div>
+
+          <div>
+            <label><strong>Additional Improvement Notes</strong></label>
+            <textarea
+              value={improvementsNotes}
+              onChange={(e) => setImprovementsNotes(e.target.value)}
+              rows={6}
+              style={{
+                width: '100%',
+                padding: 12,
+                marginTop: 6,
+                borderRadius: 10,
+                border: '1px solid #cbd5e1',
+              }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div
         style={{
