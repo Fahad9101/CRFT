@@ -7,6 +7,8 @@ import {
   watchAuth,
   createEvaluation,
   subscribeEvaluations,
+  updateEvaluation,
+  removeEvaluation,
 } from "./firebase"
 
 const appUrl = "https://fahad9101.github.io/CRFT/"
@@ -95,6 +97,14 @@ const initialScores = {
   reassessment: 0,
 }
 
+const initialForm = {
+  resident: "",
+  evaluator: "",
+  rotation: "",
+  caseName: "",
+  scores: initialScores,
+}
+
 function getGlobalRating(total) {
   if (total === 0) return ""
   if (total <= 9) return "Junior"
@@ -107,26 +117,12 @@ function getAutoStrengths(scores) {
   if (Object.values(scores).every((v) => v === 0)) return []
 
   const strengths = []
-
-  if (scores.problemFraming >= 3) {
-    strengths.push("The clinical question is being framed with useful structure and direction.")
-  }
-  if (scores.syndromeIdentification >= 3) {
-    strengths.push("The resident identifies the syndrome or physiology appropriately before anchoring too early.")
-  }
-  if (scores.differentialDiagnosis >= 3) {
-    strengths.push("The differential is reasonably organized and prioritized.")
-  }
-  if (scores.dataInterpretation >= 3) {
-    strengths.push("Clinical data is interpreted with attention to pattern and trend rather than isolated values only.")
-  }
-  if (scores.anticipation >= 3) {
-    strengths.push("The resident shows forward thinking by anticipating clinical trajectory and next steps.")
-  }
-  if (scores.reassessment >= 3) {
-    strengths.push("The resident demonstrates willingness to revise the working model as new data emerges.")
-  }
-
+  if (scores.problemFraming >= 3) strengths.push("The clinical question is being framed with useful structure and direction.")
+  if (scores.syndromeIdentification >= 3) strengths.push("The resident identifies the syndrome or physiology appropriately before anchoring too early.")
+  if (scores.differentialDiagnosis >= 3) strengths.push("The differential is reasonably organized and prioritized.")
+  if (scores.dataInterpretation >= 3) strengths.push("Clinical data is interpreted with attention to pattern and trend rather than isolated values only.")
+  if (scores.anticipation >= 3) strengths.push("The resident shows forward thinking by anticipating clinical trajectory and next steps.")
+  if (scores.reassessment >= 3) strengths.push("The resident demonstrates willingness to revise the working model as new data emerges.")
   return strengths
 }
 
@@ -277,27 +273,6 @@ function RadarChart({ scores }) {
           const y = center + Math.sin(angle) * r
           return <circle key={key} cx={x} cy={y} r="4" fill="#0c4a6e" />
         })}
-
-        {domains.map((domain, i) => {
-          const angle = (Math.PI * 2 * i) / domains.length - Math.PI / 2
-          const labelRadius = radius + 22
-          const x = center + Math.cos(angle) * labelRadius
-          const y = center + Math.sin(angle) * labelRadius
-
-          return (
-            <text
-              key={domain.key}
-              x={x}
-              y={y}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="10"
-              fill="#334155"
-            >
-              {domain.title}
-            </text>
-          )
-        })}
       </svg>
     </div>
   )
@@ -356,6 +331,15 @@ const inputStyle = {
   boxSizing: "border-box",
 }
 
+const chipStyle = (bg) => ({
+  background: bg,
+  color: "white",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 700,
+})
+
 export default function App() {
   const [user, setUser] = useState(null)
   const [isEvaluator, setIsEvaluator] = useState(false)
@@ -363,14 +347,12 @@ export default function App() {
   const [residentEmail, setResidentEmail] = useState("")
   const [evaluatorLoginEmail, setEvaluatorLoginEmail] = useState("")
   const [evaluatorLoginPassword, setEvaluatorLoginPassword] = useState("")
+  const [editingId, setEditingId] = useState(null)
+  const [statusMessage, setStatusMessage] = useState("")
+  const [dashboardSearch, setDashboardSearch] = useState("")
+  const [ratingFilter, setRatingFilter] = useState("All")
 
-  const [form, setForm] = useState({
-    resident: "",
-    evaluator: "",
-    rotation: "",
-    caseName: "",
-    scores: initialScores,
-  })
+  const [form, setForm] = useState(initialForm)
 
   useEffect(() => {
     const unsub = watchAuth((u) => {
@@ -385,6 +367,12 @@ export default function App() {
     const unsub = subscribeEvaluations(setEvaluations)
     return () => unsub()
   }, [isEvaluator])
+
+  useEffect(() => {
+    if (!statusMessage) return
+    const t = setTimeout(() => setStatusMessage(""), 2500)
+    return () => clearTimeout(t)
+  }, [statusMessage])
 
   const total = useMemo(
     () => Object.values(form.scores).reduce((sum, value) => sum + Number(value), 0),
@@ -418,6 +406,23 @@ export default function App() {
   const highestScore = nonZeroScores.length ? Math.max(...nonZeroScores) : null
   const lowestScore = nonZeroScores.length ? Math.min(...nonZeroScores) : null
 
+  const filteredEvaluations = useMemo(() => {
+    const q = dashboardSearch.trim().toLowerCase()
+
+    return evaluations.filter((e) => {
+      const textMatch =
+        !q ||
+        (e.resident || "").toLowerCase().includes(q) ||
+        (e.caseName || "").toLowerCase().includes(q) ||
+        (e.evaluator || "").toLowerCase().includes(q) ||
+        (e.rotation || "").toLowerCase().includes(q)
+
+      const ratingMatch = ratingFilter === "All" || (e.globalRating || "") === ratingFilter
+
+      return textMatch && ratingMatch
+    })
+  }, [evaluations, dashboardSearch, ratingFilter])
+
   const handleField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
@@ -437,6 +442,7 @@ export default function App() {
       caseName: "",
       scores: initialScores,
     })
+    setEditingId(null)
   }
 
   const submit = async () => {
@@ -445,18 +451,25 @@ export default function App() {
       return
     }
 
+    const payload = {
+      ...form,
+      total,
+      globalRating,
+      oneLineSummary,
+      consultantReport,
+      residentEmail: residentEmail || null,
+      submittedBy: user?.email || "resident-anonymous",
+      submittedByRole: isEvaluator ? "evaluator" : "resident",
+    }
+
     try {
-      await createEvaluation({
-        ...form,
-        total,
-        globalRating,
-        oneLineSummary,
-        consultantReport,
-        residentEmail: residentEmail || null,
-        submittedBy: user?.email || "resident-anonymous",
-        submittedByRole: isEvaluator ? "evaluator" : "resident",
-      })
-      alert("Saved.")
+      if (editingId && isEvaluator) {
+        await updateEvaluation(editingId, payload)
+        setStatusMessage("Evaluation updated.")
+      } else {
+        await createEvaluation(payload)
+        setStatusMessage("Evaluation saved.")
+      }
       resetForm()
     } catch (e) {
       console.error(e)
@@ -472,14 +485,32 @@ export default function App() {
       caseName: record.caseName || "",
       scores: record.scores || initialScores,
     })
+    setEditingId(record.id)
+    setStatusMessage("Loaded into form.")
     window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  const handleDeleteEvaluation = async (id) => {
+    const ok = window.confirm("Delete this evaluation?")
+    if (!ok) return
+
+    try {
+      await removeEvaluation(id)
+      if (editingId === id) {
+        resetForm()
+      }
+      setStatusMessage("Evaluation deleted.")
+    } catch (e) {
+      console.error(e)
+      alert("Delete failed.")
+    }
   }
 
   const copyConsultantReport = async () => {
     if (!consultantReport) return
     try {
       await navigator.clipboard.writeText(consultantReport)
-      alert("Consultant report copied.")
+      setStatusMessage("Consultant report copied.")
     } catch {
       alert("Copy failed.")
     }
@@ -601,12 +632,27 @@ export default function App() {
             Print / Save PDF
           </button>
           <button onClick={submit} style={{ ...buttonBase, background: "#0f766e" }}>
-            Save Current Assessment
+            {editingId ? "Update Evaluation" : "Save Current Assessment"}
           </button>
           <button onClick={logOut} style={{ ...buttonBase, background: "#475569" }}>
             Logout
           </button>
         </div>
+
+        {statusMessage && (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: 12,
+              borderRadius: 10,
+              background: "#ecfeff",
+              border: "1px solid #a5f3fc",
+              color: "#0f172a",
+            }}
+          >
+            {statusMessage}
+          </div>
+        )}
 
         <div
           style={{
@@ -618,35 +664,19 @@ export default function App() {
         >
           <div>
             <label><strong>Resident</strong></label>
-            <input
-              value={form.resident}
-              onChange={(e) => handleField("resident", e.target.value)}
-              style={inputStyle}
-            />
+            <input value={form.resident} onChange={(e) => handleField("resident", e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label><strong>Evaluator</strong></label>
-            <input
-              value={form.evaluator}
-              onChange={(e) => handleField("evaluator", e.target.value)}
-              style={inputStyle}
-            />
+            <input value={form.evaluator} onChange={(e) => handleField("evaluator", e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label><strong>Rotation</strong></label>
-            <input
-              value={form.rotation}
-              onChange={(e) => handleField("rotation", e.target.value)}
-              style={inputStyle}
-            />
+            <input value={form.rotation} onChange={(e) => handleField("rotation", e.target.value)} style={inputStyle} />
           </div>
           <div>
             <label><strong>Case</strong></label>
-            <input
-              value={form.caseName}
-              onChange={(e) => handleField("caseName", e.target.value)}
-              style={inputStyle}
-            />
+            <input value={form.caseName} onChange={(e) => handleField("caseName", e.target.value)} style={inputStyle} />
           </div>
         </div>
 
@@ -724,11 +754,7 @@ export default function App() {
               <div
                 key={domain.key}
                 style={{
-                  border: isHighest
-                    ? "2px solid #16a34a"
-                    : isLowest
-                    ? "2px solid #dc2626"
-                    : "1px solid #dbe4ee",
+                  border: isHighest ? "2px solid #16a34a" : isLowest ? "2px solid #dc2626" : "1px solid #dbe4ee",
                   borderRadius: 16,
                   padding: 16,
                   background: isHighest ? "#f0fdf4" : isLowest ? "#fef2f2" : "#ffffff",
@@ -737,34 +763,8 @@ export default function App() {
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                   <h3 style={{ marginTop: 0, marginBottom: 10 }}>{domain.title}</h3>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {isHighest && (
-                      <span
-                        style={{
-                          background: "#16a34a",
-                          color: "white",
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
-                      >
-                        Highest
-                      </span>
-                    )}
-                    {isLowest && (
-                      <span
-                        style={{
-                          background: "#dc2626",
-                          color: "white",
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
-                      >
-                        Lowest
-                      </span>
-                    )}
+                    {isHighest && <span style={chipStyle("#16a34a")}>Highest</span>}
+                    {isLowest && <span style={chipStyle("#dc2626")}>Lowest</span>}
                   </div>
                 </div>
 
@@ -861,10 +861,7 @@ export default function App() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <h2 style={{ marginTop: 0, fontSize: 20, marginBottom: 0 }}>Consultant Report Generator</h2>
-              <button
-                onClick={copyConsultantReport}
-                style={{ ...buttonBase, background: "#1d4ed8" }}
-              >
+              <button onClick={copyConsultantReport} style={{ ...buttonBase, background: "#1d4ed8" }}>
                 Copy Report
               </button>
             </div>
@@ -887,8 +884,52 @@ export default function App() {
 
         {isEvaluator && (
           <div style={{ ...mutedCard, marginBottom: 18 }}>
-            <h2 style={{ marginTop: 0, fontSize: 20 }}>Evaluator Dashboard</h2>
-            {evaluations.length === 0 ? (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+                alignItems: "center",
+                marginBottom: 14,
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 20 }}>Evaluator Dashboard</h2>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  placeholder="Search resident / case / evaluator / rotation"
+                  value={dashboardSearch}
+                  onChange={(e) => setDashboardSearch(e.target.value)}
+                  style={{ ...inputStyle, marginTop: 0, minWidth: 280 }}
+                />
+                <select
+                  value={ratingFilter}
+                  onChange={(e) => setRatingFilter(e.target.value)}
+                  style={{
+                    padding: 12,
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    background: "white",
+                  }}
+                >
+                  <option>All</option>
+                  <option>Junior</option>
+                  <option>Intermediate</option>
+                  <option>Senior</option>
+                  <option>Near Consultant</option>
+                </select>
+              </div>
+            </div>
+
+            {filteredEvaluations.length === 0 ? (
               <div
                 style={{
                   padding: 12,
@@ -897,11 +938,11 @@ export default function App() {
                   border: "1px solid #e2e8f0",
                 }}
               >
-                No evaluations yet.
+                No matching evaluations.
               </div>
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {evaluations.map((e) => (
+                {filteredEvaluations.map((e) => (
                   <div
                     key={e.id}
                     style={{
@@ -916,14 +957,27 @@ export default function App() {
                         <div><strong>Resident:</strong> {e.resident || "—"}</div>
                         <div><strong>Case:</strong> {e.caseName || "—"}</div>
                         <div><strong>Rotation:</strong> {e.rotation || "—"}</div>
-                        <div><strong>Score:</strong> {e.total || e.totalScore || 0}/24 {e.globalRating ? `· ${e.globalRating}` : ""}</div>
+                        <div><strong>Evaluator:</strong> {e.evaluator || "—"}</div>
+                        <div>
+                          <strong>Score:</strong> {e.total || e.totalScore || 0}/24{" "}
+                          {e.globalRating ? `· ${e.globalRating}` : ""}
+                        </div>
                       </div>
-                      <button
-                        onClick={() => loadEvaluation(e)}
-                        style={{ ...buttonBase, background: "#0f766e", alignSelf: "start" }}
-                      >
-                        Load into Form
-                      </button>
+
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "start" }}>
+                        <button
+                          onClick={() => loadEvaluation(e)}
+                          style={{ ...buttonBase, background: "#0f766e" }}
+                        >
+                          Load into Form
+                        </button>
+                        <button
+                          onClick={() => handleDeleteEvaluation(e.id)}
+                          style={{ ...buttonBase, background: "#dc2626" }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
 
                     {e.oneLineSummary && (
