@@ -292,15 +292,9 @@ function getTrendComments(comparison) {
 
   const comments = []
 
-  if (improving.length) {
-    comments.push(`Improving in ${improving.slice(0, 3).join(", ")}.`)
-  }
-  if (declining.length) {
-    comments.push(`Decline noted in ${declining.slice(0, 3).join(", ")}.`)
-  }
-  if (stable.length && comments.length === 0) {
-    comments.push(`Scores are currently stable across ${stable.slice(0, 3).join(", ")}.`)
-  }
+  if (improving.length) comments.push(`Improving in ${improving.slice(0, 3).join(", ")}.`)
+  if (declining.length) comments.push(`Decline noted in ${declining.slice(0, 3).join(", ")}.`)
+  if (stable.length && comments.length === 0) comments.push(`Scores are currently stable across ${stable.slice(0, 3).join(", ")}.`)
 
   return comments
 }
@@ -354,6 +348,37 @@ function RadarChart({ scores }) {
           return <circle key={key} cx={x} cy={y} r="4" fill="#0c4a6e" />
         })}
       </svg>
+    </div>
+  )
+}
+
+function HorizontalBarChart({ title, data, maxValue, color = "#0c4a6e", suffix = "" }) {
+  return (
+    <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14 }}>
+      <h3 style={{ marginTop: 0, marginBottom: 12 }}>{title}</h3>
+      <div style={{ display: "grid", gap: 10 }}>
+        {data.map((item) => {
+          const pct = maxValue > 0 ? (item.value / maxValue) * 100 : 0
+          return (
+            <div key={item.label}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 10 }}>
+                <span>{item.label}</span>
+                <strong>{item.value}{suffix}</strong>
+              </div>
+              <div style={{ width: "100%", height: 12, background: "#e5e7eb", borderRadius: 999 }}>
+                <div
+                  style={{
+                    width: `${pct}%`,
+                    height: "100%",
+                    background: color,
+                    borderRadius: 999,
+                  }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -556,6 +581,7 @@ export default function App() {
         avgTotal: 0,
         avgByDomain: {},
         weakestDomain: "",
+        ratingCounts: { Junior: 0, Intermediate: 0, Senior: 0, "Near Consultant": 0 },
       }
     }
 
@@ -571,16 +597,33 @@ export default function App() {
     })
 
     const weakestDomainKey = Object.entries(avgByDomain).sort((a, b) => a[1] - b[1])[0]?.[0] || ""
-    const weakestDomain =
-      domains.find((d) => d.key === weakestDomainKey)?.title || ""
+    const weakestDomain = domains.find((d) => d.key === weakestDomainKey)?.title || ""
+
+    const ratingCounts = { Junior: 0, Intermediate: 0, Senior: 0, "Near Consultant": 0 }
+    evaluations.forEach((e) => {
+      if (e.globalRating && ratingCounts[e.globalRating] !== undefined) {
+        ratingCounts[e.globalRating] += 1
+      }
+    })
 
     return {
       totalEvaluations: evaluations.length,
       avgTotal,
       avgByDomain,
       weakestDomain,
+      ratingCounts,
     }
   }, [evaluations])
+
+  const domainChartData = domains.map((d) => ({
+    label: d.title,
+    value: cohortAnalytics.avgByDomain[d.key] ?? 0,
+  }))
+
+  const ratingChartData = Object.entries(cohortAnalytics.ratingCounts || {}).map(([label, value]) => ({
+    label,
+    value,
+  }))
 
   const handleField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -655,9 +698,7 @@ export default function App() {
 
     try {
       await removeEvaluation(id)
-      if (editingId === id) {
-        resetForm()
-      }
+      if (editingId === id) resetForm()
       setStatusMessage("Evaluation deleted.")
     } catch (e) {
       console.error(e)
@@ -1050,11 +1091,13 @@ export default function App() {
           <>
             <div className="hide-print" style={{ ...mutedCard, marginBottom: 18 }}>
               <h2 style={{ marginTop: 0, fontSize: 20 }}>Cohort Analytics</h2>
+
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                   gap: 12,
+                  marginBottom: 14,
                 }}
               >
                 <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 10, padding: 12 }}>
@@ -1068,20 +1111,26 @@ export default function App() {
                 </div>
               </div>
 
-              <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-                {domains.map((d) => (
-                  <div
-                    key={d.key}
-                    style={{
-                      background: "white",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 10,
-                      padding: 12,
-                    }}
-                  >
-                    <strong>{d.title}:</strong> {cohortAnalytics.avgByDomain[d.key] ?? 0} / 4
-                  </div>
-                ))}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+                  gap: 16,
+                }}
+              >
+                <HorizontalBarChart
+                  title="Average by Domain"
+                  data={domainChartData}
+                  maxValue={4}
+                  color="#0c4a6e"
+                  suffix="/4"
+                />
+                <HorizontalBarChart
+                  title="Global Rating Distribution"
+                  data={ratingChartData}
+                  maxValue={Math.max(...ratingChartData.map((x) => x.value), 1)}
+                  color="#0f766e"
+                />
               </div>
             </div>
 
