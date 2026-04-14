@@ -94,6 +94,7 @@ const universalCases = [
     title: "The Breathless Night",
     setting: "Inpatient",
     domainFocus: "Problem Representation + Early Framing",
+    targetDomains: ["problemFraming", "syndromeIdentification", "anticipation"],
     vignette:
       "68M with HTN, CAD presents with acute dyspnea at night, orthopnea, and mild chest tightness. No fever.",
     progressiveData: [
@@ -129,8 +130,8 @@ const universalCases = [
     title: "The Silent Drop",
     setting: "Inpatient",
     domainFocus: "Data Interpretation (Electrolytes & Acid-Base)",
-    vignette:
-      "55F admitted for vomiting. She is now weak and confused.",
+    targetDomains: ["dataInterpretation", "syndromeIdentification"],
+    vignette: "55F admitted for vomiting. She is now weak and confused.",
     progressiveData: [
       "K = 2.7",
       "HCO₃ = 36",
@@ -163,6 +164,7 @@ const universalCases = [
     title: "The Fever That Won’t Break",
     setting: "Inpatient",
     domainFocus: "Hypothesis Generation",
+    targetDomains: ["problemFraming", "reassessment", "differentialDiagnosis"],
     vignette:
       "72M with diabetes has persistent fever for 10 days despite antibiotics for presumed pneumonia.",
     progressiveData: [
@@ -196,8 +198,8 @@ const universalCases = [
     title: "The Quiet Creatinine Rise",
     setting: "Inpatient",
     domainFocus: "Trend Interpretation + Anticipation",
-    vignette:
-      "65F is post-op day 2 and her creatinine is rising.",
+    targetDomains: ["dataInterpretation", "anticipation", "reassessment"],
+    vignette: "65F is post-op day 2 and her creatinine is rising.",
     progressiveData: [
       "Cr: 90 → 130 → 180",
       "Urine output decreasing",
@@ -229,6 +231,7 @@ const universalCases = [
     title: "The Hidden Clot",
     setting: "Inpatient",
     domainFocus: "Risk Stratification + Systems Thinking",
+    targetDomains: ["differentialDiagnosis", "anticipation", "problemFraming"],
     vignette:
       "60F after orthopedic surgery is now tachycardic and mildly hypoxic.",
     progressiveData: [
@@ -262,6 +265,7 @@ const universalCases = [
     title: "The Delirium on Night Shift",
     setting: "Inpatient",
     domainFocus: "Reassessment + Dangerous Cause Search",
+    targetDomains: ["reassessment", "differentialDiagnosis", "problemFraming"],
     vignette:
       "79M admitted for cellulitis becomes agitated and disoriented overnight.",
     progressiveData: [
@@ -295,6 +299,7 @@ const universalCases = [
     title: "The Tired Clinic Patient",
     setting: "Outpatient",
     domainFocus: "Problem Representation + Initial Workup",
+    targetDomains: ["problemFraming", "dataInterpretation"],
     vignette:
       "34F presents to clinic with 3 months of fatigue, exertional dyspnea, and reduced exercise tolerance.",
     progressiveData: [
@@ -328,6 +333,7 @@ const universalCases = [
     title: "The Unintended Weight Loss",
     setting: "Outpatient",
     domainFocus: "Differential Diagnosis + Prioritization",
+    targetDomains: ["differentialDiagnosis", "problemFraming", "anticipation"],
     vignette:
       "52M with polyuria, fatigue, and 7-kg unintentional weight loss over 4 months comes to clinic.",
     progressiveData: [
@@ -361,6 +367,7 @@ const universalCases = [
     title: "The Swollen Ankles",
     setting: "Outpatient",
     domainFocus: "Syndrome Identification",
+    targetDomains: ["syndromeIdentification", "dataInterpretation"],
     vignette:
       "48F presents with 2 months of leg swelling and frothy urine.",
     progressiveData: [
@@ -394,6 +401,7 @@ const universalCases = [
     title: "The Chest Pain Follow-up",
     setting: "Outpatient",
     domainFocus: "Diagnostic Precision + Safe De-escalation",
+    targetDomains: ["differentialDiagnosis", "problemFraming", "anticipation"],
     vignette:
       "45M has intermittent chest pain after stress. It is sharp and worse with inspiration. He is seen in clinic after an unrevealing ED visit.",
     progressiveData: [
@@ -427,6 +435,7 @@ const universalCases = [
     title: "The Difficult Blood Pressure Visit",
     setting: "Outpatient",
     domainFocus: "Data Interpretation + Reframing",
+    targetDomains: ["dataInterpretation", "problemFraming", "reassessment"],
     vignette:
       "63M is referred for uncontrolled hypertension despite 3 medications.",
     progressiveData: [
@@ -460,6 +469,7 @@ const universalCases = [
     title: "The Incidental High Calcium",
     setting: "Outpatient",
     domainFocus: "Problem Framing + Focused Differential",
+    targetDomains: ["problemFraming", "dataInterpretation", "differentialDiagnosis"],
     vignette:
       "58F is referred after routine labs show elevated calcium. She reports constipation and mild fatigue.",
     progressiveData: [
@@ -754,6 +764,62 @@ function benchmarkCaseAnswer(answer, selectedCase) {
   }
 }
 
+function getWeakestDomainsFromScores(scores) {
+  return Object.entries(scores)
+    .sort((a, b) => a[1] - b[1])
+    .map(([key]) => key)
+}
+
+function getAdaptiveCase(pool, weakestDomains) {
+  for (const weakDomain of weakestDomains) {
+    const matches = pool.filter((c) => (c.targetDomains || []).includes(weakDomain))
+    if (matches.length) {
+      return matches[Math.floor(Math.random() * matches.length)]
+    }
+  }
+  return pool[Math.floor(Math.random() * pool.length)]
+}
+
+function getPatternTrackerData(evaluations, residentName) {
+  if (!residentName.trim()) return null
+
+  const residentEvals = evaluations
+    .filter((e) => (e.resident || "").toLowerCase() === residentName.trim().toLowerCase())
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+    .slice(0, 5)
+
+  if (!residentEvals.length) return null
+
+  const domainStats = domains.map((d) => {
+    const values = residentEvals.map((e) => Number(e.scores?.[d.key] || 0))
+    const avg = values.reduce((a, b) => a + b, 0) / values.length
+    const lowCount = values.filter((v) => v > 0 && v <= 2).length
+
+    return {
+      key: d.key,
+      title: d.title,
+      avg: Number(avg.toFixed(2)),
+      lowCount,
+    }
+  })
+
+  const repeatedWeaknesses = domainStats
+    .filter((d) => d.lowCount >= 2 || d.avg <= 2)
+    .sort((a, b) => a.avg - b.avg)
+
+  const message =
+    repeatedWeaknesses.length > 0
+      ? `Pattern detected: repeated difficulty in ${repeatedWeaknesses.slice(0, 3).map((d) => d.title).join(", ")}.`
+      : "No clear repeated weak pattern detected yet."
+
+  return {
+    residentEvals,
+    domainStats,
+    repeatedWeaknesses,
+    message,
+  }
+}
+
 function RadarChart({ scores }) {
   const size = 320
   const center = size / 2
@@ -924,6 +990,9 @@ export default function App() {
   const [speechError, setSpeechError] = useState("")
   const recognitionRef = useRef(null)
 
+  const [overrideReflection, setOverrideReflection] = useState("")
+  const [overrideCompleted, setOverrideCompleted] = useState(false)
+
   const [form, setForm] = useState(initialForm)
 
   const selectedCase = useMemo(
@@ -935,6 +1004,11 @@ export default function App() {
     if (caseSettingFilter === "All") return universalCases
     return universalCases.filter((c) => c.setting === caseSettingFilter)
   }, [caseSettingFilter])
+
+  const currentResidentPattern = useMemo(
+    () => getPatternTrackerData(evaluations, form.resident || ""),
+    [evaluations, form.resident]
+  )
 
   useEffect(() => {
     const unsub = watchAuth((u) => {
@@ -1202,8 +1276,7 @@ export default function App() {
 
     if (!pool.length) return
 
-    const randomIndex = Math.floor(Math.random() * pool.length)
-    const picked = pool[randomIndex]
+    const picked = pool[Math.floor(Math.random() * pool.length)]
 
     stopVoiceTyping()
     setSelectedCaseKey(picked.key)
@@ -1214,8 +1287,45 @@ export default function App() {
     setFacultyMode(false)
     setTraineeAnswer("")
     setBenchmarkResult(null)
+    setOverrideReflection("")
+    setOverrideCompleted(false)
     setSpeechError("")
     setStatusMessage(`Random case assigned: ${picked.title}`)
+  }
+
+  const assignAdaptiveCase = () => {
+    const pool =
+      caseSettingFilter === "All"
+        ? universalCases
+        : universalCases.filter((c) => c.setting === caseSettingFilter)
+
+    if (!pool.length) return
+
+    let weakestDomains = []
+
+    if (currentResidentPattern?.repeatedWeaknesses?.length) {
+      weakestDomains = currentResidentPattern.repeatedWeaknesses.map((d) => d.key)
+    } else if (Object.values(form.scores).some((v) => Number(v) > 0)) {
+      weakestDomains = getWeakestDomainsFromScores(form.scores)
+    } else {
+      weakestDomains = domains.map((d) => d.key)
+    }
+
+    const picked = getAdaptiveCase(pool, weakestDomains)
+
+    stopVoiceTyping()
+    setSelectedCaseKey(picked.key)
+    setForm((prev) => ({
+      ...prev,
+      caseName: picked.title,
+    }))
+    setFacultyMode(false)
+    setTraineeAnswer("")
+    setBenchmarkResult(null)
+    setOverrideReflection("")
+    setOverrideCompleted(false)
+    setSpeechError("")
+    setStatusMessage(`Adaptive case assigned: ${picked.title}`)
   }
 
   const useSelectedCase = () => {
@@ -1227,6 +1337,8 @@ export default function App() {
     }))
     setBenchmarkResult(null)
     setTraineeAnswer("")
+    setOverrideReflection("")
+    setOverrideCompleted(false)
     setSpeechError("")
     setStatusMessage(`Loaded case: ${selectedCase.title}`)
   }
@@ -1243,6 +1355,17 @@ export default function App() {
 
     const result = benchmarkCaseAnswer(traineeAnswer, selectedCase)
     setBenchmarkResult(result)
+    setOverrideCompleted(false)
+  }
+
+  const revealFacultyAfterOverride = () => {
+    if (!overrideReflection.trim()) {
+      alert("Enter what you would change before revealing the faculty answer.")
+      return
+    }
+    setOverrideCompleted(true)
+    setFacultyMode(true)
+    setStatusMessage("Faculty answer revealed after reflection.")
   }
 
   const handleField = (field, value) => {
@@ -1271,6 +1394,8 @@ export default function App() {
     setFacultyMode(false)
     setTraineeAnswer("")
     setBenchmarkResult(null)
+    setOverrideReflection("")
+    setOverrideCompleted(false)
     setSpeechError("")
   }
 
@@ -1294,6 +1419,8 @@ export default function App() {
       universalCaseSetting: selectedCase?.setting || null,
       traineeAnswer: traineeAnswer || null,
       benchmarkResult: benchmarkResult || null,
+      overrideReflection: overrideReflection || null,
+      overrideCompleted: overrideCompleted || false,
     }
 
     try {
@@ -1325,7 +1452,9 @@ export default function App() {
     setEditingId(record.id)
     setTraineeAnswer(record.traineeAnswer || "")
     setBenchmarkResult(record.benchmarkResult || null)
-    setFacultyMode(false)
+    setOverrideReflection(record.overrideReflection || "")
+    setOverrideCompleted(record.overrideCompleted || false)
+    setFacultyMode(Boolean(record.overrideCompleted))
     setSpeechError("")
     setStatusMessage("Loaded into form.")
     window.scrollTo({ top: 0, behavior: "smooth" })
@@ -1521,6 +1650,50 @@ export default function App() {
           </div>
         </div>
 
+        {form.resident.trim() && currentResidentPattern && (
+          <div className="hide-print" style={{ ...mutedCard, marginBottom: 18 }}>
+            <h2 style={{ marginTop: 0, fontSize: 20 }}>Error Pattern Tracker</h2>
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                background: "white",
+                border: "1px solid #e2e8f0",
+                marginBottom: 12,
+              }}
+            >
+              <strong>{currentResidentPattern.message}</strong>
+              <div style={{ marginTop: 8, color: "#475569" }}>
+                Based on the most recent {currentResidentPattern.residentEvals.length} evaluation(s).
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 10,
+              }}
+            >
+              {currentResidentPattern.domainStats.map((item) => (
+                <div
+                  key={item.key}
+                  style={{
+                    background: "white",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 10,
+                    padding: 12,
+                  }}
+                >
+                  <strong>{item.title}</strong>
+                  <div style={{ marginTop: 6 }}>Average: {item.avg}/4</div>
+                  <div>Low scores count: {item.lowCount}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="hide-print" style={{ ...mutedCard, marginBottom: 18 }}>
           <div
             style={{
@@ -1544,6 +1717,8 @@ export default function App() {
                   setBenchmarkResult(null)
                   setTraineeAnswer("")
                   setFacultyMode(false)
+                  setOverrideReflection("")
+                  setOverrideCompleted(false)
                   setSpeechError("")
                 }}
                 style={{
@@ -1567,6 +1742,8 @@ export default function App() {
                   setBenchmarkResult(null)
                   setTraineeAnswer("")
                   setFacultyMode(false)
+                  setOverrideReflection("")
+                  setOverrideCompleted(false)
                   setSpeechError("")
                 }}
                 style={{
@@ -1585,11 +1762,12 @@ export default function App() {
                 ))}
               </select>
 
-              <button
-                onClick={assignRandomCase}
-                style={{ ...buttonBase, background: "#7c3aed" }}
-              >
+              <button onClick={assignRandomCase} style={{ ...buttonBase, background: "#7c3aed" }}>
                 Random Case
+              </button>
+
+              <button onClick={assignAdaptiveCase} style={{ ...buttonBase, background: "#0ea5e9" }}>
+                Adaptive Case
               </button>
 
               <button
@@ -1779,6 +1957,9 @@ export default function App() {
                       stopVoiceTyping()
                       setTraineeAnswer("")
                       setBenchmarkResult(null)
+                      setOverrideReflection("")
+                      setOverrideCompleted(false)
+                      setFacultyMode(false)
                       setSpeechError("")
                     }}
                     style={{ ...buttonBase, background: "#64748b" }}
@@ -1818,13 +1999,7 @@ export default function App() {
                 )}
 
                 {benchmarkResult && (
-                  <div
-                    style={{
-                      marginTop: 14,
-                      display: "grid",
-                      gap: 12,
-                    }}
-                  >
+                  <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
                     <div
                       style={{
                         padding: 12,
@@ -1884,6 +2059,45 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+
+                    {!overrideCompleted && (
+                      <div
+                        style={{
+                          padding: 14,
+                          borderRadius: 12,
+                          background: "#fff7ed",
+                          border: "1px solid #fed7aa",
+                        }}
+                      >
+                        <h4 style={{ marginTop: 0 }}>Consultant Override Mode</h4>
+                        <div style={{ color: "#7c2d12", marginBottom: 10 }}>
+                          Before revealing the faculty answer, state what you would change after seeing this benchmark.
+                        </div>
+
+                        <textarea
+                          rows={5}
+                          value={overrideReflection}
+                          onChange={(e) => setOverrideReflection(e.target.value)}
+                          placeholder="What would you change in your framing, differential, interpretation, or plan?"
+                          style={{
+                            width: "100%",
+                            padding: 12,
+                            borderRadius: 10,
+                            border: "1px solid #cbd5e1",
+                            background: "white",
+                            boxSizing: "border-box",
+                            marginBottom: 10,
+                          }}
+                        />
+
+                        <button
+                          onClick={revealFacultyAfterOverride}
+                          style={{ ...buttonBase, background: "#b45309" }}
+                        >
+                          Reveal Faculty Answer
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2294,6 +2508,7 @@ export default function App() {
                           {e.benchmarkResult?.totalScore !== undefined && (
                             <div><strong>Benchmark:</strong> {e.benchmarkResult.totalScore}/100 · {e.benchmarkResult.level}</div>
                           )}
+                          {e.overrideCompleted && <div><strong>Consultant override:</strong> completed</div>}
                         </div>
 
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "start" }}>
