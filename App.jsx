@@ -92,6 +92,7 @@ const universalCases = [
   {
     key: "breathless-night",
     title: "The Breathless Night",
+    setting: "Inpatient",
     domainFocus: "Problem Representation + Early Framing",
     vignette:
       "68M with HTN, CAD presents with acute dyspnea at night, orthopnea, and mild chest tightness. No fever.",
@@ -126,6 +127,7 @@ const universalCases = [
   {
     key: "silent-drop",
     title: "The Silent Drop",
+    setting: "Inpatient",
     domainFocus: "Data Interpretation (Electrolytes & Acid-Base)",
     vignette:
       "55F admitted for vomiting. She is now weak and confused.",
@@ -159,6 +161,7 @@ const universalCases = [
   {
     key: "fever-wont-break",
     title: "The Fever That Won’t Break",
+    setting: "Inpatient",
     domainFocus: "Hypothesis Generation",
     vignette:
       "72M with diabetes has persistent fever for 10 days despite antibiotics for presumed pneumonia.",
@@ -191,6 +194,7 @@ const universalCases = [
   {
     key: "quiet-creatinine-rise",
     title: "The Quiet Creatinine Rise",
+    setting: "Inpatient",
     domainFocus: "Trend Interpretation + Anticipation",
     vignette:
       "65F is post-op day 2 and her creatinine is rising.",
@@ -221,40 +225,9 @@ const universalCases = [
     ],
   },
   {
-    key: "chest-pain-trap",
-    title: "The Chest Pain Trap",
-    domainFocus: "Diagnostic Precision",
-    vignette:
-      "45M has chest pain after stress. It is sharp and worse with inspiration.",
-    progressiveData: [
-      "ECG normal",
-      "Troponin normal",
-      "D-dimer mildly elevated",
-      "CT negative for PE",
-    ],
-    reasoningMap: [
-      "Avoid premature closure on ACS",
-      "Consider pericarditis, musculoskeletal pain, anxiety",
-      "Use pre-test probability before D-dimer",
-    ],
-    mustHit: [
-      "Recognize non-cardiac chest pain safely",
-      "Avoid over-testing cascade",
-      "De-escalate with reasoning, not reflex reassurance",
-    ],
-    redFlags: [
-      "Defensive over-testing spiral",
-      "Calling atypical automatically safe",
-      "Missing pericarditis clues",
-    ],
-    evaluatorGuide: [
-      "Can the resident safely de-escalate?",
-      "Do they avoid the testing cascade?",
-    ],
-  },
-  {
     key: "hidden-clot",
     title: "The Hidden Clot",
+    setting: "Inpatient",
     domainFocus: "Risk Stratification + Systems Thinking",
     vignette:
       "60F after orthopedic surgery is now tachycardic and mildly hypoxic.",
@@ -282,6 +255,237 @@ const universalCases = [
     evaluatorGuide: [
       "Does the resident integrate risk, context, and management?",
       "Or just react to the image result?",
+    ],
+  },
+  {
+    key: "delirium-night-shift",
+    title: "The Delirium on Night Shift",
+    setting: "Inpatient",
+    domainFocus: "Reassessment + Dangerous Cause Search",
+    vignette:
+      "79M admitted for cellulitis becomes agitated and disoriented overnight.",
+    progressiveData: [
+      "Nurse notes fluctuating attention",
+      "Temp 37.9°C, HR 104",
+      "Bladder scan 700 mL",
+      "Medication list includes diphenhydramine and opioids",
+    ],
+    reasoningMap: [
+      "Recognize delirium rather than labeling agitation alone",
+      "Search for reversible precipitants",
+      "Consider retention, infection, drugs, pain, hypoxia, constipation",
+    ],
+    mustHit: [
+      "Identify delirium as an acute brain failure syndrome",
+      "Look for reversible triggers systematically",
+      "Prioritize non-pharmacologic management and treat causes",
+    ],
+    redFlags: [
+      "Using sedatives before assessing cause",
+      "Missing urinary retention",
+      "Calling this dementia progression",
+    ],
+    evaluatorGuide: [
+      "Does the resident recognize fluctuating attention?",
+      "Do they search for common hospital precipitants?",
+    ],
+  },
+  {
+    key: "clinic-fatigue-anemia",
+    title: "The Tired Clinic Patient",
+    setting: "Outpatient",
+    domainFocus: "Problem Representation + Initial Workup",
+    vignette:
+      "34F presents to clinic with 3 months of fatigue, exertional dyspnea, and reduced exercise tolerance.",
+    progressiveData: [
+      "Hb 89 g/L",
+      "MCV 72",
+      "Ferritin low",
+      "Periods reported as heavy",
+    ],
+    reasoningMap: [
+      "Frame this as chronic microcytic anemia",
+      "Prioritize iron deficiency and source identification",
+      "Connect symptoms to degree and tempo of anemia",
+    ],
+    mustHit: [
+      "Recognize iron deficiency anemia pattern",
+      "Look for bleeding source, including gynecologic history",
+      "Treat deficiency and address cause rather than iron alone",
+    ],
+    redFlags: [
+      "Calling it nonspecific fatigue only",
+      "Missing bleeding history",
+      "Failing to plan follow-up response to therapy",
+    ],
+    evaluatorGuide: [
+      "Does the resident identify the anemia pattern quickly?",
+      "Do they ask why the iron is low?",
+    ],
+  },
+  {
+    key: "clinic-weight-loss-diabetes",
+    title: "The Unintended Weight Loss",
+    setting: "Outpatient",
+    domainFocus: "Differential Diagnosis + Prioritization",
+    vignette:
+      "52M with polyuria, fatigue, and 7-kg unintentional weight loss over 4 months comes to clinic.",
+    progressiveData: [
+      "Random glucose 17.8 mmol/L",
+      "A1c 11.2%",
+      "No abdominal pain",
+      "BMI 24",
+    ],
+    reasoningMap: [
+      "Recognize symptomatic uncontrolled diabetes",
+      "Assess for catabolic symptoms and severity",
+      "Think beyond routine diabetes follow-up because of weight loss",
+    ],
+    mustHit: [
+      "Identify symptomatic hyperglycemia needing prompt treatment",
+      "Assess urgency and whether same-day escalation is needed",
+      "Consider atypical features and whether further evaluation is required",
+    ],
+    redFlags: [
+      "Treating as routine mild diabetes",
+      "Ignoring weight loss significance",
+      "No plan for close follow-up",
+    ],
+    evaluatorGuide: [
+      "Does the resident separate stable outpatient care from urgent escalation?",
+      "Do they contextualize weight loss?",
+    ],
+  },
+  {
+    key: "clinic-edema-proteinuria",
+    title: "The Swollen Ankles",
+    setting: "Outpatient",
+    domainFocus: "Syndrome Identification",
+    vignette:
+      "48F presents with 2 months of leg swelling and frothy urine.",
+    progressiveData: [
+      "BP 148/92",
+      "Urinalysis: 4+ protein",
+      "Albumin low",
+      "Creatinine near baseline",
+    ],
+    reasoningMap: [
+      "Identify nephrotic syndrome pattern",
+      "Move from symptom edema to syndrome recognition",
+      "Plan confirmation and kidney-focused workup",
+    ],
+    mustHit: [
+      "Recognize nephrotic syndrome",
+      "Quantify proteinuria and assess kidney function",
+      "Consider thrombosis risk and secondary causes",
+    ],
+    redFlags: [
+      "Treating as venous insufficiency only",
+      "Ignoring frothy urine",
+      "Missing syndrome-level framing",
+    ],
+    evaluatorGuide: [
+      "Does the resident name the syndrome before the etiology?",
+      "Do they organize the workup logically?",
+    ],
+  },
+  {
+    key: "clinic-chest-pain-followup",
+    title: "The Chest Pain Follow-up",
+    setting: "Outpatient",
+    domainFocus: "Diagnostic Precision + Safe De-escalation",
+    vignette:
+      "45M has intermittent chest pain after stress. It is sharp and worse with inspiration. He is seen in clinic after an unrevealing ED visit.",
+    progressiveData: [
+      "ECG normal",
+      "Troponin normal",
+      "CT negative for PE",
+      "Pain reproducible on palpation",
+    ],
+    reasoningMap: [
+      "Avoid premature closure on ACS but interpret prior negative testing appropriately",
+      "Recognize likely non-cardiac chest pain",
+      "De-escalate with explanation and return precautions",
+    ],
+    mustHit: [
+      "Recognize likely musculoskeletal chest pain",
+      "Avoid restarting unnecessary testing cascade",
+      "Provide safety-net advice and follow-up plan",
+    ],
+    redFlags: [
+      "Calling all chest pain anxiety",
+      "Ignoring prior workup context",
+      "Over-testing again without indication",
+    ],
+    evaluatorGuide: [
+      "Can the resident safely reassure without being dismissive?",
+      "Do they explain why the pain is low risk?",
+    ],
+  },
+  {
+    key: "clinic-resistant-pressure",
+    title: "The Difficult Blood Pressure Visit",
+    setting: "Outpatient",
+    domainFocus: "Data Interpretation + Reframing",
+    vignette:
+      "63M is referred for uncontrolled hypertension despite 3 medications.",
+    progressiveData: [
+      "Clinic BP 168/96",
+      "Home readings not available",
+      "Current meds: amlodipine, losartan, hydrochlorothiazide",
+      "NSAID use for knee pain",
+    ],
+    reasoningMap: [
+      "Confirm whether this is true resistant hypertension",
+      "Assess adherence, measurement accuracy, and contributors",
+      "Review drugs that worsen blood pressure",
+    ],
+    mustHit: [
+      "Do not label resistant hypertension too early",
+      "Check home or ambulatory measurements if feasible",
+      "Identify contributing medications and lifestyle factors",
+    ],
+    redFlags: [
+      "Escalating drugs without confirming diagnosis",
+      "Ignoring NSAID contribution",
+      "No attention to BP technique",
+    ],
+    evaluatorGuide: [
+      "Does the resident verify the problem before intensifying therapy?",
+      "Do they look for pseudo-resistance?",
+    ],
+  },
+  {
+    key: "clinic-high-calcium",
+    title: "The Incidental High Calcium",
+    setting: "Outpatient",
+    domainFocus: "Problem Framing + Focused Differential",
+    vignette:
+      "58F is referred after routine labs show elevated calcium. She reports constipation and mild fatigue.",
+    progressiveData: [
+      "Calcium mildly elevated on repeat test",
+      "Creatinine normal",
+      "PTH inappropriately normal-high",
+      "No acute symptoms",
+    ],
+    reasoningMap: [
+      "Confirm true hypercalcemia and severity",
+      "Use PTH to organize the differential",
+      "Distinguish outpatient evaluation from emergency hypercalcemia care",
+    ],
+    mustHit: [
+      "Recognize likely PTH-mediated hypercalcemia",
+      "Assess severity and symptoms before deciding urgency",
+      "Plan focused outpatient workup and follow-up",
+    ],
+    redFlags: [
+      "Treating a stable outpatient as hypercalcemic crisis",
+      "Ignoring repeat confirmation",
+      "Not organizing causes by PTH status",
+    ],
+    evaluatorGuide: [
+      "Does the resident use physiology to structure the differential?",
+      "Do they match intensity of workup to urgency?",
     ],
   },
 ]
@@ -433,6 +637,7 @@ function exportToCSV(data) {
     "Submitted By",
     "Role",
     "Date",
+    "Case Setting",
   ]
 
   const rows = data.map((e) => [
@@ -445,6 +650,7 @@ function exportToCSV(data) {
     `"${e.submittedBy || ""}"`,
     `"${e.submittedByRole || ""}"`,
     `"${formatFirebaseDate(e.createdAt)}"`,
+    `"${e.universalCaseSetting || ""}"`,
   ])
 
   const csvContent = [headers, ...rows].map((r) => r.join(",")).join("\n")
@@ -707,6 +913,7 @@ export default function App() {
   const [ratingFilter, setRatingFilter] = useState("All")
   const [selectedResident, setSelectedResident] = useState("")
   const [selectedCaseKey, setSelectedCaseKey] = useState("")
+  const [caseSettingFilter, setCaseSettingFilter] = useState("All")
 
   const [facultyMode, setFacultyMode] = useState(false)
   const [traineeAnswer, setTraineeAnswer] = useState("")
@@ -723,6 +930,11 @@ export default function App() {
     () => universalCases.find((c) => c.key === selectedCaseKey) || null,
     [selectedCaseKey]
   )
+
+  const filteredCases = useMemo(() => {
+    if (caseSettingFilter === "All") return universalCases
+    return universalCases.filter((c) => c.setting === caseSettingFilter)
+  }, [caseSettingFilter])
 
   useEffect(() => {
     const unsub = watchAuth((u) => {
@@ -824,7 +1036,8 @@ export default function App() {
         (e.resident || "").toLowerCase().includes(q) ||
         (e.caseName || "").toLowerCase().includes(q) ||
         (e.evaluator || "").toLowerCase().includes(q) ||
-        (e.rotation || "").toLowerCase().includes(q)
+        (e.rotation || "").toLowerCase().includes(q) ||
+        (e.universalCaseSetting || "").toLowerCase().includes(q)
 
       const ratingMatch = ratingFilter === "All" || (e.globalRating || "") === ratingFilter
 
@@ -982,9 +1195,15 @@ export default function App() {
   }
 
   const assignRandomCase = () => {
-    if (!universalCases.length) return
-    const randomIndex = Math.floor(Math.random() * universalCases.length)
-    const picked = universalCases[randomIndex]
+    const pool =
+      caseSettingFilter === "All"
+        ? universalCases
+        : universalCases.filter((c) => c.setting === caseSettingFilter)
+
+    if (!pool.length) return
+
+    const randomIndex = Math.floor(Math.random() * pool.length)
+    const picked = pool[randomIndex]
 
     stopVoiceTyping()
     setSelectedCaseKey(picked.key)
@@ -1047,6 +1266,7 @@ export default function App() {
       scores: { ...initialScores },
     })
     setSelectedCaseKey("")
+    setCaseSettingFilter("All")
     setEditingId(null)
     setFacultyMode(false)
     setTraineeAnswer("")
@@ -1071,6 +1291,7 @@ export default function App() {
       submittedByRole: isEvaluator ? "evaluator" : "resident",
       universalCaseKey: selectedCaseKey || null,
       universalCaseTitle: selectedCase?.title || null,
+      universalCaseSetting: selectedCase?.setting || null,
       traineeAnswer: traineeAnswer || null,
       benchmarkResult: benchmarkResult || null,
     }
@@ -1100,6 +1321,7 @@ export default function App() {
       scores: record.scores || { ...initialScores },
     })
     setSelectedCaseKey(record.universalCaseKey || "")
+    setCaseSettingFilter(record.universalCaseSetting || "All")
     setEditingId(record.id)
     setTraineeAnswer(record.traineeAnswer || "")
     setBenchmarkResult(record.benchmarkResult || null)
@@ -1287,6 +1509,30 @@ export default function App() {
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <select
+                value={caseSettingFilter}
+                onChange={(e) => {
+                  stopVoiceTyping()
+                  setCaseSettingFilter(e.target.value)
+                  setSelectedCaseKey("")
+                  setBenchmarkResult(null)
+                  setTraineeAnswer("")
+                  setFacultyMode(false)
+                  setSpeechError("")
+                }}
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  background: "white",
+                  minWidth: 160,
+                }}
+              >
+                <option value="All">All Settings</option>
+                <option value="Inpatient">Inpatient</option>
+                <option value="Outpatient">Outpatient</option>
+              </select>
+
+              <select
                 value={selectedCaseKey}
                 onChange={(e) => {
                   stopVoiceTyping()
@@ -1301,13 +1547,13 @@ export default function App() {
                   borderRadius: 10,
                   border: "1px solid #cbd5e1",
                   background: "white",
-                  minWidth: 260,
+                  minWidth: 280,
                 }}
               >
-                <option value="">Select a universal case</option>
-                {universalCases.map((c) => (
+                <option value="">Select a case</option>
+                {filteredCases.map((c) => (
                   <option key={c.key} value={c.key}>
-                    {c.title}
+                    [{c.setting}] {c.title}
                   </option>
                 ))}
               </select>
@@ -1367,7 +1613,7 @@ export default function App() {
               >
                 <h3 style={{ marginTop: 0, marginBottom: 8 }}>{selectedCase.title}</h3>
                 <div style={{ marginBottom: 8, color: "#0f766e", fontWeight: 700 }}>
-                  Domain focus: {selectedCase.domainFocus}
+                  Setting: {selectedCase.setting} · Domain focus: {selectedCase.domainFocus}
                 </div>
                 <div>{selectedCase.vignette}</div>
               </div>
@@ -1932,10 +2178,10 @@ export default function App() {
                   </button>
 
                   <input
-                    placeholder="Search resident / case / evaluator / rotation"
+                    placeholder="Search resident / case / evaluator / rotation / setting"
                     value={dashboardSearch}
                     onChange={(e) => setDashboardSearch(e.target.value)}
-                    style={{ ...inputStyle, marginTop: 0, minWidth: 280 }}
+                    style={{ ...inputStyle, marginTop: 0, minWidth: 320 }}
                   />
 
                   <select
@@ -2070,6 +2316,7 @@ export default function App() {
                         <div>
                           <div><strong>Resident:</strong> {e.resident || "—"}</div>
                           <div><strong>Case:</strong> {e.caseName || "—"}</div>
+                          <div><strong>Setting:</strong> {e.universalCaseSetting || "—"}</div>
                           <div><strong>Rotation:</strong> {e.rotation || "—"}</div>
                           <div><strong>Evaluator:</strong> {e.evaluator || "—"}</div>
                           <div><strong>Score:</strong> {e.total || e.totalScore || 0}/24 {e.globalRating ? `· ${e.globalRating}` : ""}</div>
