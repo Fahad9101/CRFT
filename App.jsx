@@ -105,6 +105,203 @@ const initialForm = {
   scores: initialScores,
 }
 
+const universalCases = [
+  {
+    key: "breathless-night",
+    title: "The Breathless Night",
+    domainFocus: "Problem Representation + Early Framing",
+    vignette:
+      "68M with HTN, CAD presents with acute dyspnea at night, orthopnea, and mild chest tightness. No fever.",
+    progressiveData: [
+      "Vitals: HR 105, BP 160/90, RR 26, SpO₂ 90% RA",
+      "Exam: Crackles bilaterally, mild JVP elevation",
+      "Labs: BNP ↑, Troponin mildly ↑",
+      "CXR: Bilateral interstitial opacities",
+    ],
+    reasoningMap: [
+      "Acute dyspnea → cardiopulmonary prioritization",
+      "No fever → infection less likely, but not excluded",
+      "Orthopnea + crackles → cardiac origin favored",
+      "Troponin mild ↑ → demand ischemia vs ACS",
+    ],
+    mustHit: [
+      "Problem representation: acute decompensated heart failure with possible ischemic trigger",
+      "Recognize troponin does not automatically equal ACS",
+      "Initiate oxygen, diuretics, and consider nitrates",
+    ],
+    redFlags: [
+      "Treating as pneumonia without reasoning",
+      "Ignoring troponin context",
+      "Missing hypertensive pulmonary edema",
+    ],
+    evaluatorGuide: [
+      "Does the resident summarize the case in one sentence correctly?",
+      "Do they prematurely anchor on infection?",
+      "Do they contextualize troponin?",
+    ],
+  },
+  {
+    key: "silent-drop",
+    title: "The Silent Drop",
+    domainFocus: "Data Interpretation (Electrolytes & Acid-Base)",
+    vignette:
+      "55F admitted for vomiting. Now weak and confused.",
+    progressiveData: [
+      "K = 2.7",
+      "HCO₃ = 36",
+      "Cl = low",
+      "ABG: metabolic alkalosis",
+      "Urine Cl = low",
+    ],
+    reasoningMap: [
+      "Metabolic alkalosis → classify",
+      "Low urine chloride → chloride-responsive alkalosis",
+      "Cause → vomiting / volume contraction",
+    ],
+    mustHit: [
+      "Recognize contraction alkalosis",
+      "Treat with NS + KCl, not potassium alone",
+      "Understand physiology: RAAS activation and distal H⁺ secretion",
+    ],
+    redFlags: [
+      "Giving only potassium",
+      "Missing volume depletion",
+      "Not checking or using urine chloride",
+    ],
+    evaluatorGuide: [
+      "Does the resident use urine chloride correctly?",
+      "Do they understand mechanism or just memorize?",
+    ],
+  },
+  {
+    key: "fever-wont-break",
+    title: "The Fever That Won’t Break",
+    domainFocus: "Hypothesis Generation",
+    vignette:
+      "72M with DM, persistent fever for 10 days despite antibiotics for presumed pneumonia.",
+    progressiveData: [
+      "Blood cultures: negative",
+      "CT chest: improving infiltrate",
+      "CRP remains high",
+      "New murmur",
+    ],
+    reasoningMap: [
+      "Reframe the problem: persistent fever despite treatment",
+      "Expand differential: endocarditis, abscess, drug fever, malignancy",
+      "Treatment failure does not only mean wrong antibiotic",
+    ],
+    mustHit: [
+      "Change the clinical question",
+      "Order echocardiography for suspected endocarditis",
+      "Recognize treatment failure requires reframing",
+    ],
+    redFlags: [
+      "Escalating antibiotics blindly",
+      "Not reframing the diagnosis",
+      "Missing endocarditis clue from new murmur",
+    ],
+    evaluatorGuide: [
+      "Does the resident step back and reframe?",
+      "Or do they continue linear thinking?",
+    ],
+  },
+  {
+    key: "quiet-creatinine-rise",
+    title: "The Quiet Creatinine Rise",
+    domainFocus: "Trend Interpretation + Anticipation",
+    vignette:
+      "65F post-op day 2. Creatinine is rising.",
+    progressiveData: [
+      "Cr: 90 → 130 → 180",
+      "Urine output decreasing",
+      "FeNa: 0.8%",
+      "On ACEi + NSAIDs",
+    ],
+    reasoningMap: [
+      "Classify AKI: prerenal vs intrinsic",
+      "Integrate medications: ACEi + NSAID + hypovolemia",
+      "Trend matters more than isolated value",
+    ],
+    mustHit: [
+      "Stop offending medications",
+      "Perform volume assessment",
+      "Anticipate progression and prevent severe AKI",
+    ],
+    redFlags: [
+      "Ignoring the trend",
+      "Over-relying on FeNa",
+      "Continuing nephrotoxins",
+    ],
+    evaluatorGuide: [
+      "Does the resident act before severe AKI develops?",
+      "Do they integrate medications plus physiology?",
+    ],
+  },
+  {
+    key: "chest-pain-trap",
+    title: "The Chest Pain Trap",
+    domainFocus: "Diagnostic Precision",
+    vignette:
+      "45M with chest pain after stress. Sharp and worse with inspiration.",
+    progressiveData: [
+      "ECG: normal",
+      "Troponin: normal",
+      "D-dimer: mildly elevated",
+      "CT: negative for PE",
+    ],
+    reasoningMap: [
+      "Avoid premature closure on ACS",
+      "Consider pericarditis, musculoskeletal pain, anxiety",
+      "Use pre-test probability before D-dimer",
+    ],
+    mustHit: [
+      "Recognize non-cardiac chest pain safely",
+      "Avoid over-testing cascade",
+      "Keep diagnostic precision instead of reflex reassurance",
+    ],
+    redFlags: [
+      "Defensive medicine spiral",
+      "Labeling atypical as safe without reasoning",
+      "Missing pericarditis clues",
+    ],
+    evaluatorGuide: [
+      "Does the resident avoid over-testing?",
+      "Can they safely de-escalate with reasoning?",
+    ],
+  },
+  {
+    key: "hidden-clot",
+    title: "The Hidden Clot",
+    domainFocus: "Risk Stratification + Systems Thinking",
+    vignette:
+      "60F post orthopedic surgery, now tachycardic and mildly hypoxic.",
+    progressiveData: [
+      "HR 110, SpO₂ 92%",
+      "Wells score: moderate",
+      "D-dimer elevated",
+      "CT: segmental PE",
+    ],
+    reasoningMap: [
+      "Identify provoked VTE",
+      "Risk stratify by hemodynamic stability and RV strain",
+      "Move from diagnosis to appropriate intensity of treatment",
+    ],
+    mustHit: [
+      "Start anticoagulation promptly",
+      "Decide inpatient vs outpatient management",
+      "Plan treatment duration: provoked VTE ≈ 3 months",
+    ],
+    redFlags: [
+      "Delaying anticoagulation",
+      "Over-escalating to thrombolysis",
+      "Missing postoperative risk context",
+    ],
+    evaluatorGuide: [
+      "Does the resident integrate risk, context, and management?",
+      "Or just react to imaging?",
+    ],
+  },
+]
 function getGlobalRating(total) {
   if (total === 0) return ""
   if (total <= 9) return "Junior"
