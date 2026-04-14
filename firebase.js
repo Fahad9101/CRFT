@@ -12,7 +12,6 @@ import {
   collection,
   addDoc,
   updateDoc,
-  deleteDoc,
   doc,
   serverTimestamp,
   onSnapshot,
@@ -72,6 +71,19 @@ function sanitizeWhatChanged(whatChanged = {}) {
   }
 }
 
+function makeResidentId(rawResident) {
+  const cleaned = sanitizeText(rawResident, 200).toLowerCase()
+  if (!cleaned) return ""
+  return cleaned.replace(/[^\w]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 100)
+}
+
+function makeDisplayLabel(data = {}) {
+  const resident = sanitizeText(data.resident, 80) || "Unknown resident"
+  const caseName = sanitizeText(data.caseName, 80) || "No case"
+  const rating = sanitizeText(data.globalRating, 40) || "No rating"
+  return `${resident} | ${caseName} | ${rating}`
+}
+
 function buildSafePayload(data = {}) {
   const scores = sanitizeScores(data.scores)
   const total =
@@ -80,17 +92,23 @@ function buildSafePayload(data = {}) {
       : Object.values(scores).reduce((sum, value) => sum + value, 0)
 
   const user = auth.currentUser
+  const resident = sanitizeText(data.resident, 200)
+  const evaluator = sanitizeText(data.evaluator, 200)
+  const rotation = sanitizeText(data.rotation, 200)
+  const caseName = sanitizeText(data.caseName, 300)
+  const globalRating = sanitizeText(data.globalRating, 100)
 
-  return {
-    resident: sanitizeText(data.resident, 200),
-    evaluator: sanitizeText(data.evaluator, 200),
-    rotation: sanitizeText(data.rotation, 200),
-    caseName: sanitizeText(data.caseName, 300),
+  const safePayload = {
+    resident,
+    residentId: sanitizeText(data.residentId, 100) || makeResidentId(resident),
+    evaluator,
+    rotation,
+    caseName,
 
     scores,
     total: Math.min(24, Math.max(0, Number(total) || 0)),
 
-    globalRating: sanitizeText(data.globalRating, 100),
+    globalRating,
     oneLineSummary: sanitizeText(data.oneLineSummary, 2000),
     consultantReport: sanitizeText(data.consultantReport, 12000),
 
@@ -116,8 +134,15 @@ function buildSafePayload(data = {}) {
     whatChanged: sanitizeWhatChanged(data.whatChanged),
     whatChangedSummary: sanitizeText(data.whatChangedSummary, 4000),
 
+    displayLabel:
+      sanitizeText(data.displayLabel, 200) ||
+      makeDisplayLabel({ resident, caseName, globalRating }),
+
     deleted: Boolean(data.deleted),
+    deletedAt: data.deleted ? serverTimestamp() : null,
   }
+
+  return safePayload
 }
 
 export async function signInResident() {
@@ -141,6 +166,8 @@ export async function createEvaluation(data) {
 
   return addDoc(collection(db, "evaluations"), {
     ...payload,
+    deleted: false,
+    deletedAt: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -159,7 +186,12 @@ export async function updateEvaluation(id, updates) {
 
 export async function removeEvaluation(id) {
   if (!id) throw new Error("Missing evaluation id")
-  return deleteDoc(doc(db, "evaluations", id))
+
+  return updateDoc(doc(db, "evaluations", id), {
+    deleted: true,
+    deletedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
 }
 
 export function subscribeEvaluations(callback) {
@@ -168,10 +200,13 @@ export function subscribeEvaluations(callback) {
   return onSnapshot(
     q,
     (snapshot) => {
-      const data = snapshot.docs.map((item) => ({
-        id: item.id,
-        ...item.data(),
-      }))
+      const data = snapshot.docs
+        .map((item) => ({
+          id: item.id,
+          ...item.data(),
+        }))
+        .filter((item) => !item.deleted)
+
       callback(data)
     },
     (error) => {
