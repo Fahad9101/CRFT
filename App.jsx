@@ -1113,10 +1113,89 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-                    <div><strong>Manual total:</strong> {manualTotal}/24</div>
-                    <div style={{ marginTop: 6 }}><strong>Manual rating:</strong> {getGlobalRating(manualTotal)}</div>
-                    {selectedRecord?.calibration ? <div style={{ marginTop: 6 }}><strong>Existing calibration:</strong> {selectedRecord.calibration.agreementFlag} agreement</div> : null}
+                  <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div style={{ padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Automatic Assessment</div>
+                      <div><strong>Total:</strong> {selectedRecord?.autoTotal ?? selectedRecord?.total ?? 0}/24</div>
+                      <div style={{ marginTop: 6 }}><strong>Rating:</strong> {selectedRecord?.autoRating || selectedRecord?.globalRating || "—"}</div>
+                      <div style={{ marginTop: 6 }}><strong>Error tags:</strong> {((selectedRecord?.autoErrorTags || selectedRecord?.errorTags || []).join(", ")) || "none"}</div>
+                      <div style={{ marginTop: 10, fontSize: 13, color: "#475569" }}>
+                        {domains.map((d) => (
+                          <div key={`auto-${d.key}`}>
+                            {d.title}: {(selectedRecord?.autoScores || selectedRecord?.scores || {})[d.key] ?? 0}/4
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <strong>Feedback:</strong> {selectedRecord?.autoFeedback || "—"}
+                      </div>
+                    </div>
+
+                    <div style={{ padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Manual Assessment</div>
+                      <div><strong>Total:</strong> {manualTotal}/24</div>
+                      <div style={{ marginTop: 6 }}><strong>Rating:</strong> {getGlobalRating(manualTotal)}</div>
+                      <div style={{ marginTop: 6 }}><strong>Error tags:</strong> {(manualErrorTags || []).join(", ") || "none"}</div>
+                      <div style={{ marginTop: 10, fontSize: 13, color: "#475569" }}>
+                        {domains.map((d) => (
+                          <div key={`manual-${d.key}`}>
+                            {d.title}: {manualScores[d.key] ?? 0}/4
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ marginTop: 10 }}>
+                        <strong>Feedback preview:</strong> {buildManualFeedback(
+                          universalCases.find((c) => c.key === selectedRecord?.universalCaseKey),
+                          manualScores,
+                          manualErrorTags
+                        ) || "—"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: "#eef6ff", border: "1px solid #bfdbfe" }}>
+                    <div style={{ fontWeight: 800, marginBottom: 8 }}>Calibration Summary</div>
+                    <div>
+                      <strong>Total difference:</strong> {selectedRecord
+                        ? calibrationFrom(
+                            selectedRecord.autoScores || selectedRecord.scores || {},
+                            manualScores,
+                            selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
+                            manualTotal
+                          ).totalDifference
+                        : 0}
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <strong>Agreement:</strong> {selectedRecord
+                        ? calibrationFrom(
+                            selectedRecord.autoScores || selectedRecord.scores || {},
+                            manualScores,
+                            selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
+                            manualTotal
+                          ).agreementFlag
+                        : "—"}
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 13, color: "#334155" }}>
+                      {selectedRecord &&
+                        domains.map((d) => {
+                          const diff = calibrationFrom(
+                            selectedRecord.autoScores || selectedRecord.scores || {},
+                            manualScores,
+                            selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
+                            manualTotal
+                          ).domainDifferences[d.key]
+                          return (
+                            <div key={`diff-${d.key}`}>
+                              {d.title}: difference {diff}
+                            </div>
+                          )
+                        })}
+                    </div>
+                    {selectedRecord?.manualFeedback ? (
+                      <div style={{ marginTop: 10 }}>
+                        <strong>Saved manual feedback:</strong> {selectedRecord.manualFeedback}
+                      </div>
+                    ) : null}
                   </div>
 
                   <button type="button" onClick={saveManualScoring} style={{ ...buttonBase, background: "#0f766e", marginTop: 16, width: "100%" }}>
