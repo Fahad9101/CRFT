@@ -1,4 +1,4 @@
-// firebase.js (clean + complete)
+// firebase.js (FINAL CLEAN VERSION)
 
 import { initializeApp, getApps } from "firebase/app"
 import {
@@ -21,20 +21,20 @@ import {
   query,
   orderBy,
   setDoc,
-  getDoc,
 } from "firebase/firestore"
 
-// 🔴 PUT YOUR REAL CONFIG HERE
+// ✅ YOUR REAL FIREBASE CONFIG (FIXED)
 const firebaseConfig = {
-  apiKey: "AIza...",
-  authDomain: "your-project-id.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project-id.appspot.com",
-  messagingSenderId: "...",
-  appId: "...",
+  apiKey: "AIzaSyBz00_ifpMM2tbRBILZVU-cEvfiBqTCRMI",
+  authDomain: "crft-c9f31.firebaseapp.com",
+  projectId: "crft-c9f31",
+  storageBucket: "crft-c9f31.appspot.com", // 🔥 FIXED
+  messagingSenderId: "337127729938",
+  appId: "1:337127729938:web:4e44f6a65050c3d5ace1cb",
+  measurementId: "G-G1NBRQ5G9",
 }
 
-// جلوگیری من التهيئة المكررة
+// Prevent duplicate initialization
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig)
 
 const auth = getAuth(app)
@@ -95,7 +95,7 @@ export const removeEvaluation = async (id) => {
 }
 
 // ============================
-// SESSION CONFIG (🔥 FIX FOR YOUR ERROR)
+// SESSION CONFIG (FOR YOUR STUDY CONTROL)
 // ============================
 
 const sessionRef = doc(db, "config", "session")
