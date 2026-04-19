@@ -524,6 +524,56 @@ function autoScoreSubmission(response, caseObj) {
 function buildStrengths(domainScores) {
   return CRFT_DOMAINS.filter((d) => domainScores[d] >= 3).map((d) => DOMAIN_LABELS[d]);
 }
+
+function computeBenchmark(caseObj, response, autoResult) {
+  const text = normalize(`${response.leadingDiagnosis} ${response.freeText}`);
+  const mustHits = caseObj.hiddenRubric.conceptMap || {};
+  const acceptedLeadingDiagnoses = caseObj.hiddenRubric.acceptedLeadingDiagnoses || [];
+
+  const domainHitCounts = Object.fromEntries(
+    CRFT_DOMAINS.map((d) => {
+      const phrases = mustHits[d] || [];
+      return [d, countHits(text, phrases)];
+    })
+  );
+
+  const domainTargetCounts = Object.fromEntries(
+    CRFT_DOMAINS.map((d) => [d, (mustHits[d] || []).length])
+  );
+
+  const domainPercentages = Object.fromEntries(
+    CRFT_DOMAINS.map((d) => {
+      const denom = domainTargetCounts[d] || 0;
+      const pct = denom ? Math.round((domainHitCounts[d] / denom) * 100) : 0;
+      return [d, pct];
+    })
+  );
+
+  const allMustHits = Object.values(mustHits).flat();
+  const totalHitCount = countHits(text, allMustHits);
+  const totalTargetCount = allMustHits.length || 0;
+  const benchmarkPercent = totalTargetCount ? Math.round((totalHitCount / totalTargetCount) * 100) : 0;
+
+  const missedMustHits = [...new Set(allMustHits.filter((p) => !text.includes(normalize(p))))].slice(0, 8);
+  const leadingDxAccepted = acceptedLeadingDiagnoses.length
+    ? includesAny(response.leadingDiagnosis, acceptedLeadingDiagnoses)
+    : false;
+
+  let competencyLevel = "Needs major support";
+  if (benchmarkPercent >= 80) competencyLevel = "Strong alignment";
+  else if (benchmarkPercent >= 60) competencyLevel = "Competent alignment";
+  else if (benchmarkPercent >= 40) competencyLevel = "Partial alignment";
+
+  return {
+    benchmarkPercent,
+    competencyLevel,
+    leadingDxAccepted,
+    missedMustHits,
+    domainHitCounts,
+    domainTargetCounts,
+    domainPercentages,
+  };
+}
 function buildWeakestDomain(domainScores) {
   return [...CRFT_DOMAINS].sort((a, b) => domainScores[a] - domainScores[b])[0];
 }
@@ -539,8 +589,13 @@ function buildFeedback({ response, caseObj, autoResult, manualResult }) {
     .filter(Boolean)
     .slice(0, 3);
 
+  const benchmark = computeBenchmark(caseObj, response, autoResult);
+
   return [
     strengths.length ? `Strengths: ${strengths.join(", ")}.` : "Strengths: You engaged with the case, but the reasoning structure needs more organization.",
+    `Benchmark alignment: ${benchmark.benchmarkPercent}% (${benchmark.competencyLevel}).`,
+    benchmark.leadingDxAccepted ? "Leading diagnosis matched the accepted benchmark set." : "Leading diagnosis did not clearly match the accepted benchmark set.",
+    benchmark.missedMustHits.length ? `Key missed benchmark concepts: ${benchmark.missedMustHits.slice(0, 4).join(", ")}.` : "All major benchmark concepts were represented.",
     autoResult.dangerousMiss
       ? "Critical miss: a dangerous diagnosis should have been considered earlier in the reasoning process."
       : "Safety signal: no dangerous-miss flag was triggered.",
@@ -564,7 +619,7 @@ function buildCalibration(autoResult, manualResult) {
     exactMatchDomains: exactMatchCount(autoResult.domainScores, manualResult.domainScores),
   };
 }
-function buildSubmissionRecord({ session, caseObj, response, autoResult, manualResult, calibration, feedbackText }) {
+function buildSubmissionRecord({ session, caseObj, response, autoResult, manualResult, calibration, feedbackText, benchmark }) {
   return {
     sessionCode: session.sessionCode,
     sessionDay: session.dayIndex,
@@ -593,6 +648,7 @@ function buildSubmissionRecord({ session, caseObj, response, autoResult, manualR
     manualErrorTags: manualResult?.selectedErrorTags || [],
     manualComments: manualResult?.comments || "",
     calibration: calibration || null,
+    benchmark: benchmark || null,
     feedbackText,
     exportFlat: {
       ...Object.fromEntries(CRFT_DOMAINS.map((d) => [`auto_${d}`, autoResult.domainScores[d]])),
@@ -601,6 +657,9 @@ function buildSubmissionRecord({ session, caseObj, response, autoResult, manualR
       manualTotal: manualResult?.total ?? "",
       calibrationTotalDifference: calibration?.totalDifference ?? "",
       agreementClass: calibration?.agreementClass ?? "",
+      benchmarkPercent: benchmark?.benchmarkPercent ?? "",
+      benchmarkCompetencyLevel: benchmark?.competencyLevel ?? "",
+      benchmarkLeadingDxAccepted: benchmark?.leadingDxAccepted ?? "",
     },
   };
 }
@@ -628,7 +687,7 @@ function toCsv(records) {
     ...CRFT_DOMAINS.map((d) => `auto_${d}`), "autoTotal", "autoGlobalRating",
     ...CRFT_DOMAINS.map((d) => `manual_${d}`), "manualTotal", "manualGlobalRating",
     "dangerousMiss", "autoBiasTags", "autoErrorTags", "manualBiasTags", "manualErrorTags",
-    "calibrationTotalDifference", "agreementClass", "feedbackText",
+    "calibrationTotalDifference", "agreementClass", "benchmarkPercent", "benchmarkCompetencyLevel", "benchmarkLeadingDxAccepted", "feedbackText",
   ];
   const rows = records.map((r) => [
     r.sessionCode, r.sessionDay, r.phase, r.caseId, r.caseTitle, r.residentId, r.pgy, r.confidence,
@@ -637,7 +696,9 @@ function toCsv(records) {
     ...CRFT_DOMAINS.map((d) => r.manualDomainScores?.[d] ?? ""), r.manualTotal ?? "", r.manualGlobalRating ?? "",
     r.dangerousMiss, JSON.stringify(r.autoBiasTags), JSON.stringify(r.autoErrorTags),
     JSON.stringify(r.manualBiasTags || []), JSON.stringify(r.manualErrorTags || []),
-    r.calibration?.totalDifference ?? "", r.calibration?.agreementClass ?? "", JSON.stringify(r.feedbackText || ""),
+    r.calibration?.totalDifference ?? "", r.calibration?.agreementClass ?? "",
+    r.benchmark?.benchmarkPercent ?? "", r.benchmark?.competencyLevel ?? "", r.benchmark?.leadingDxAccepted ?? "",
+    JSON.stringify(r.feedbackText || ""),
   ]);
   return [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n");
 }
@@ -687,6 +748,7 @@ export default function App() {
   const autoResult = useMemo(() => autoScoreSubmission(response, currentCase), [response, currentCase]);
   const manualResult = useMemo(() => buildManualResult(manual), [manual]);
   const calibration = useMemo(() => buildCalibration(autoResult, manualResult), [autoResult, manualResult]);
+  const benchmark = useMemo(() => computeBenchmark(currentCase, response, autoResult), [currentCase, response, autoResult]);
   const feedbackText = useMemo(() => buildFeedback({ response, caseObj: currentCase, autoResult, manualResult }), [response, currentCase, autoResult, manualResult]);
 
   useEffect(() => {
@@ -783,6 +845,7 @@ export default function App() {
       autoResult: finalAuto,
       manualResult: finalManual,
     });
+    const finalBenchmark = computeBenchmark(currentCase, finalResponse, finalAuto);
     const record = buildSubmissionRecord({
       session,
       caseObj: currentCase,
@@ -791,6 +854,7 @@ export default function App() {
       manualResult: finalManual,
       calibration: finalCalibration,
       feedbackText: finalFeedback,
+      benchmark: finalBenchmark,
     });
 
     try {
@@ -1053,6 +1117,26 @@ export default function App() {
           </Card>
         </div>
 
+        <Card title="Benchmark Summary">
+          <div className="grid gap-3 md:grid-cols-2 text-sm">
+            <div className="space-y-2">
+              <div>Benchmark Score: <span className="font-semibold">{benchmark.benchmarkPercent}%</span></div>
+              <div>Competency Level: <span className="font-semibold">{benchmark.competencyLevel}</span></div>
+              <div>Leading Diagnosis Match: <span className="font-semibold">{benchmark.leadingDxAccepted ? "Yes" : "No"}</span></div>
+            </div>
+            <div>
+              <div className="font-medium mb-2">Missed Must-Hit Concepts</div>
+              <div className="flex flex-wrap gap-2">
+                {benchmark.missedMustHits.length ? benchmark.missedMustHits.slice(0, 6).map((item) => (
+                  <span key={item} className="rounded-full bg-orange-100 px-3 py-1 text-xs text-orange-800">
+                    {item}
+                  </span>
+                )) : <span className="text-slate-500">None</span>}
+              </div>
+            </div>
+          </div>
+        </Card>
+
         <Card title="Generated Feedback">
           <p className="text-sm leading-7 text-slate-700">{feedbackText}</p>
         </Card>
@@ -1068,6 +1152,7 @@ export default function App() {
                   <th className="p-2">Auto</th>
                   <th className="p-2">Manual</th>
                   <th className="p-2">Gap</th>
+                  <th className="p-2">Benchmark</th>
                   <th className="p-2">Danger</th>
                   <th className="p-2">Delete</th>
                 </tr>
@@ -1081,6 +1166,7 @@ export default function App() {
                     <td className="p-2">{r.autoTotal}</td>
                     <td className="p-2">{r.manualTotal ?? "—"}</td>
                     <td className="p-2">{r.calibration?.totalDifference ?? "—"}</td>
+                    <td className="p-2">{r.benchmark?.benchmarkPercent ?? "—"}%</td>
                     <td className="p-2">{r.dangerousMiss ? "Yes" : "No"}</td>
                     <td className="p-2">
                       <Button variant="ghost" onClick={() => handleDeleteRecord(r.id)} className="px-2 py-1">Delete</Button>
@@ -1089,7 +1175,7 @@ export default function App() {
                 ))}
                 {!records.length && (
                   <tr>
-                    <td colSpan={8} className="p-4 text-center text-slate-500">No submissions yet.</td>
+                    <td colSpan={9} className="p-4 text-center text-slate-500">No submissions yet.</td>
                   </tr>
                 )}
               </tbody>
