@@ -1,1303 +1,1392 @@
-import React, { useEffect, useMemo, useState } from "react"
-import {
-  signInResident,
-  signInEvaluator,
-  logOut,
-  watchAuth,
-  createEvaluation,
-  subscribeEvaluations,
-  updateEvaluation,
-  removeEvaluation,
-  subscribeSessionConfig,
-  saveSessionConfig,
-} from "./firebase"
+import React, { useMemo, useState } from "react";
 
-const appUrl = "https://fahad9101.github.io/CRFT/"
+// ============================================================
+// CRFT PHASE 1 - SINGLE FILE APP.JSX
+// Best-effort production-ready scaffold with 10 embedded cases
+// ============================================================
 
-const domains = [
-  { key: "problemFraming", title: "Problem Framing" },
-  { key: "syndromeIdentification", title: "Syndrome Identification" },
-  { key: "differentialDiagnosis", title: "Differential Diagnosis" },
-  { key: "dataInterpretation", title: "Data Interpretation" },
-  { key: "anticipation", title: "Anticipation" },
-  { key: "reassessment", title: "Reassessment" },
-]
+const RESIDENT_IDS = ["R1", "R2", "R3", "R4", "R5"];
+const ROLES = ["Resident", "Evaluator", "Program Director"];
+const PHASES = ["baseline", "intervention"];
 
-const domainRubric = {
-  problemFraming: {
-    0: "Absent or only repeats symptoms.",
-    1: "Incorrect or fragmented framing.",
-    2: "Partial framing; misses acuity, context, or core decision problem.",
-    3: "Mostly correct framing with meaningful clinical direction.",
-    4: "Concise, complete, prioritized framing capturing acuity and decision problem.",
+const CRFT_DOMAINS = [
+  "problemFraming",
+  "syndromeIdentification",
+  "differentialDiagnosis",
+  "dataInterpretation",
+  "anticipation",
+  "reassessment",
+];
+
+const DOMAIN_LABELS = {
+  problemFraming: "Problem Framing",
+  syndromeIdentification: "Syndrome Identification",
+  differentialDiagnosis: "Differential Diagnosis",
+  dataInterpretation: "Data Interpretation",
+  anticipation: "Anticipation",
+  reassessment: "Reassessment",
+};
+
+const DOMAIN_ANCHORS_0_4 = {
+  0: "Absent / unsafe / fundamentally flawed",
+  1: "Major gaps / fragmented reasoning",
+  2: "Partial / basic but incomplete",
+  3: "Competent / organized / mostly appropriate",
+  4: "Strong / high-quality / near-consultant reasoning",
+};
+
+const GLOBAL_RATING_LABELS = [
+  { min: 0, max: 5, label: "Junior" },
+  { min: 6, max: 11, label: "Early Developing" },
+  { min: 12, max: 17, label: "Advanced Junior" },
+  { min: 18, max: 21, label: "Senior-like" },
+  { min: 22, max: 24, label: "Near Consultant" },
+];
+
+const COGNITIVE_BIASES = {
+  anchoring: {
+    id: "anchoring",
+    label: "Anchoring Bias",
+    definition:
+      "Fixates on an early diagnosis and does not sufficiently adjust despite new data.",
+    feedback: (ctx) =>
+      `You anchored early on ${ctx?.leadingDx || "an initial diagnosis"} and did not sufficiently adjust when later findings emerged. Expert reasoning reopens the differential when new data no longer fit the first impression.`,
   },
-  syndromeIdentification: {
-    0: "Absent.",
-    1: "Incorrect syndrome.",
-    2: "Vague physiology or incomplete syndrome.",
-    3: "Correct syndrome identified.",
-    4: "Correct syndrome plus physiologic integration.",
+  prematureClosure: {
+    id: "prematureClosure",
+    label: "Premature Closure",
+    definition:
+      "Stops diagnostic reasoning too early after reaching a plausible answer.",
+    feedback: () =>
+      "You reached a diagnosis too early without adequately exploring alternatives. Expert reasoning keeps competing hypotheses alive until the data are strong enough to narrow safely.",
   },
-  differentialDiagnosis: {
-    0: "Absent.",
-    1: "Narrow, random, or clearly flawed differential.",
-    2: "Some relevant options but poorly prioritized.",
-    3: "Relevant and prioritized differential.",
-    4: "Prioritized, physiologically coherent, includes dangerous alternatives.",
+  confirmationBias: {
+    id: "confirmationBias",
+    label: "Confirmation Bias",
+    definition:
+      "Selectively emphasizes findings that support a preferred diagnosis while ignoring conflicting data.",
+    feedback: () =>
+      "Your reasoning emphasized supportive data but did not sufficiently address conflicting findings. Expert reasoning actively tests whether the preferred diagnosis could be wrong.",
   },
-  dataInterpretation: {
-    0: "Ignores key data.",
-    1: "Misinterprets important data.",
-    2: "Lists data without meaning.",
-    3: "Interprets key data correctly.",
-    4: "Integrates key data into a reasoning shift or narrowing.",
+  availabilityBias: {
+    id: "availabilityBias",
+    label: "Availability Bias",
+    definition:
+      "Overweights familiar or recently seen diagnoses rather than case-specific evidence.",
+    feedback: () =>
+      "The diagnosis appears influenced by familiarity more than by the specific pattern in this case. Expert reasoning prioritizes what best fits the current data, not what is most familiar.",
   },
-  anticipation: {
-    0: "Absent.",
-    1: "Purely reactive.",
-    2: "Basic next step only.",
-    3: "Anticipates likely deterioration or next clinical issue.",
-    4: "Proactive prevention and conditional planning.",
+  representativenessError: {
+    id: "representativenessError",
+    label: "Representativeness Error",
+    definition:
+      "Rejects a diagnosis because it does not fit a classic or stereotypical picture.",
+    feedback: () =>
+      "You seem to have rejected an important possibility because the case did not look classic. Expert reasoning allows for atypical presentations when the risk is high or the data still fit.",
   },
-  reassessment: {
-    0: "Absent.",
-    1: "Static reasoning.",
-    2: "Minimal mention of reassessment.",
-    3: "Clear reassessment trigger or follow-up plan.",
-    4: "Dynamic reassessment tied to evolving clinical data.",
+  failureToUpdate: {
+    id: "failureToUpdate",
+    label: "Failure to Update",
+    definition: "Does not revise the differential after new data arrive.",
+    feedback: () =>
+      "New data should have shifted your diagnostic priorities, but your reasoning remained unchanged. Expert reasoning continuously updates probabilities as evidence evolves.",
   },
-}
+  wrongQuestionFraming: {
+    id: "wrongQuestionFraming",
+    label: "Wrong-Question Framing",
+    definition: "Solves a secondary issue instead of the core clinical problem.",
+    feedback: () =>
+      "Your reasoning focused on a secondary issue rather than the main clinical problem. Expert reasoning first defines the exact question that must be solved.",
+  },
+};
 
-const pageWrap = {
-  minHeight: "100vh",
-  background: "#f6f7fb",
-  padding: "24px 16px 40px",
-  fontFamily: "Arial, sans-serif",
-  color: "#0f172a",
-}
-const container = { maxWidth: 1380, margin: "0 auto" }
-const card = { background: "#fff", border: "1px solid #dbe4ee", borderRadius: 16, padding: 18 }
-const inputStyle = {
-  width: "100%",
-  padding: 12,
-  borderRadius: 10,
-  border: "1px solid #cbd5e1",
-  boxSizing: "border-box",
-  background: "#fff",
-}
-const textareaStyle = { ...inputStyle, minHeight: 140, resize: "vertical" }
-const buttonBase = {
-  padding: "10px 14px",
-  color: "white",
-  border: "none",
-  borderRadius: 10,
-  fontWeight: 700,
-  cursor: "pointer",
-}
-const tabStyle = (active) => ({
-  padding: "10px 14px",
-  borderRadius: 12,
-  border: "none",
-  fontWeight: 700,
-  cursor: "pointer",
-  background: active ? "#0f4c81" : "#dbe4ee",
-  color: active ? "white" : "#0f172a",
-})
+const REASONING_ERRORS = {
+  missedLifeThreatening: {
+    id: "missedLifeThreatening",
+    label: "Missed Life-Threatening Diagnosis",
+    definition:
+      "Fails to consider or prioritize a dangerous diagnosis that should be addressed early.",
+    feedback: (ctx) =>
+      `A life-threatening diagnosis${
+        ctx?.dangerousExpected?.length
+          ? ` (${ctx.dangerousExpected.join(", ")})`
+          : ""
+      } was not considered or not prioritized appropriately. Expert reasoning rules out dangerous causes early before narrowing.`,
+  },
+  poorProblemRepresentation: {
+    id: "poorProblemRepresentation",
+    label: "Poor Problem Representation",
+    definition: "Case summary is inaccurate, vague, or unfocused.",
+    feedback: () =>
+      "Your case summary lacked enough clarity and prioritization to guide the next step. Expert reasoning starts with a concise, high-yield framing statement.",
+  },
+  weakDifferentialPrioritization: {
+    id: "weakDifferentialPrioritization",
+    label: "Weak Differential Prioritization",
+    definition:
+      "Differential is missing, generic, or not ranked by likelihood and risk.",
+    feedback: () =>
+      "Your differential was either too limited or not sufficiently prioritized. Expert reasoning ranks diagnoses by both likelihood and danger.",
+  },
+  incorrectDataInterpretation: {
+    id: "incorrectDataInterpretation",
+    label: "Incorrect Data Interpretation",
+    definition:
+      "Key labs, imaging, or clinical findings are misread or not integrated appropriately.",
+    feedback: () =>
+      "Some key data were misinterpreted or not integrated into the diagnostic reasoning. Expert reasoning ensures the interpretation of findings is accurate before action is taken.",
+  },
+  failureToAnticipate: {
+    id: "failureToAnticipate",
+    label: "Failure to Anticipate",
+    definition:
+      "Does not predict likely deterioration, complications, or next steps.",
+    feedback: () =>
+      "Your plan did not sufficiently anticipate what could happen next. Expert reasoning includes contingency planning for likely deterioration or downstream consequences.",
+  },
+  unsafeIncompleteManagement: {
+    id: "unsafeIncompleteManagement",
+    label: "Unsafe / Incomplete Management",
+    definition:
+      "Management plan is inappropriate, delayed, or missing key actions.",
+    feedback: () =>
+      "The management plan was incomplete or not appropriately prioritized. Expert management addresses urgent actions first and aligns them with the leading diagnostic possibilities.",
+  },
+  noReassessmentStrategy: {
+    id: "noReassessmentStrategy",
+    label: "No Reassessment Strategy",
+    definition:
+      "No clear plan for how to reassess, monitor response, or revise thinking.",
+    feedback: () =>
+      "There was no clear reassessment plan. Expert reasoning includes how and when to check whether the current interpretation and management are working.",
+  },
+  overconfidenceMismatch: {
+    id: "overconfidenceMismatch",
+    label: "Overconfidence Mismatch",
+    definition:
+      "Confidence is too high for the quality of reasoning demonstrated.",
+    feedback: () =>
+      "Your stated confidence was higher than the strength of the reasoning. Expert clinicians align confidence with uncertainty and the quality of available evidence.",
+  },
+};
 
-const initialScores = {
-  problemFraming: 0,
-  syndromeIdentification: 0,
-  differentialDiagnosis: 0,
-  dataInterpretation: 0,
-  anticipation: 0,
-  reassessment: 0,
-}
+const CASE_LIBRARY = [
+  {
+    id: "C1",
+    title: "Acute Dyspnea Overnight",
+    difficulty: "moderate",
+    traps: ["anchoring on heart failure", "missing PE"],
+    domainFocus: ["problemFraming", "differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "68-year-old man with HTN and CAD presents with acute nocturnal dyspnea, orthopnea, tachycardia, and hypoxemia.",
+    hiddenRubric: {
+      mustHitConcepts: [
+        "acute dyspnea",
+        "hypoxemia",
+        "cardiopulmonary emergency",
+        "heart failure",
+        "pulmonary embolism",
+      ],
+      acceptedLeadingDiagnoses: [
+        "acute heart failure",
+        "pulmonary embolism",
+        "acs with pulmonary edema",
+      ],
+      dangerousDiagnoses: [
+        "pulmonary embolism",
+        "pe",
+        "acs",
+        "flash pulmonary edema",
+      ],
+      conceptMap: {
+        problemFraming: ["acute", "dyspnea", "hypoxemia", "cardiopulmonary"],
+        syndromeIdentification: [
+          "acute cardiopulmonary syndrome",
+          "acute decompensated heart failure",
+          "pulmonary embolism syndrome",
+        ],
+        differentialDiagnosis: [
+          "heart failure",
+          "pulmonary embolism",
+          "pe",
+          "acs",
+          "pneumonia",
+        ],
+        dataInterpretation: [
+          "bnp",
+          "troponin",
+          "crackles",
+          "jvp",
+          "interstitial opacities",
+        ],
+        anticipation: [
+          "deterioration",
+          "respiratory failure",
+          "hemodynamic worsening",
+          "oxygen",
+        ],
+        reassessment: [
+          "repeat vitals",
+          "oxygen response",
+          "trend troponin",
+          "reassess",
+        ],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["pulmonary embolism", "acs"], penaltyPoints: 2 },
+      biasTriggers: {
+        anchoring: ["heart failure"],
+        prematureClosure: ["single diagnosis only"],
+        failureToUpdate: ["ignores acute onset", "ignores troponin"],
+        wrongQuestionFraming: ["focus on chronic cad only"],
+      },
+    },
+  },
+  {
+    id: "C2",
+    title: "Fever, Hypotension, and AKI",
+    difficulty: "moderate",
+    traps: ["narrowing too fast to UTI", "missing source control issue"],
+    domainFocus: ["syndromeIdentification", "anticipation", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "72-year-old woman presents with fever, confusion, hypotension, elevated lactate, and AKI.",
+    hiddenRubric: {
+      mustHitConcepts: ["shock", "sepsis", "source identification", "resuscitation", "reassessment"],
+      acceptedLeadingDiagnoses: ["septic shock", "urosepsis", "biliary sepsis"],
+      dangerousDiagnoses: ["septic shock", "obstructive infection", "adrenal crisis"],
+      conceptMap: {
+        problemFraming: ["shock", "infection", "aki", "altered mental status"],
+        syndromeIdentification: ["septic shock", "distributive shock", "sepsis"],
+        differentialDiagnosis: ["urosepsis", "biliary sepsis", "pneumonia", "adrenal crisis"],
+        dataInterpretation: ["lactate", "creatinine", "hypotension", "urinalysis"],
+        anticipation: ["vasopressors", "source control", "icu", "fluid response"],
+        reassessment: ["repeat lactate", "map", "urine output", "cultures"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["septic shock"], penaltyPoints: 2 },
+      biasTriggers: {
+        prematureClosure: ["uti only"],
+        confirmationBias: ["mentions only urine source"],
+        failureToUpdate: ["ignores shock severity"],
+      },
+    },
+  },
+  {
+    id: "C3",
+    title: "Chest Pain with Mild Troponin Rise",
+    difficulty: "moderate",
+    traps: ["labeling as reflux", "ignoring ACS"],
+    domainFocus: ["problemFraming", "dataInterpretation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "59-year-old man with diabetes presents with exertional chest pressure, diaphoresis, and a mild rise in troponin.",
+    hiddenRubric: {
+      mustHitConcepts: ["acs", "nste-acs", "ischemia", "risk stratification"],
+      acceptedLeadingDiagnoses: ["acs", "nste-acs", "unstable angina", "nstemi"],
+      dangerousDiagnoses: ["acs", "nstemi", "aortic dissection", "pulmonary embolism"],
+      conceptMap: {
+        problemFraming: ["chest pain", "ischemic", "troponin", "high risk"],
+        syndromeIdentification: ["acute coronary syndrome", "acs", "nste-acs"],
+        differentialDiagnosis: ["nstemi", "unstable angina", "aortic dissection", "pe", "gerd"],
+        dataInterpretation: ["troponin", "ecg", "ischemia", "risk factors"],
+        anticipation: ["arrhythmia", "hemodynamic instability", "telemetry", "cardiology"],
+        reassessment: ["repeat ecg", "repeat troponin", "serial assessment"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["acs"], penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["gerd", "reflux"], prematureClosure: ["musculoskeletal"] },
+    },
+  },
+  {
+    id: "C4",
+    title: "Confusion and Severe Hyponatremia",
+    difficulty: "moderate",
+    traps: ["treating the sodium number only", "not classifying tonicity/volume status"],
+    domainFocus: ["syndromeIdentification", "dataInterpretation", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "76-year-old woman presents with confusion and falls. Sodium is 116 mmol/L, serum osmolality is low, and urine osmolality is high.",
+    hiddenRubric: {
+      mustHitConcepts: ["hypotonic hyponatremia", "symptomatic", "volume assessment", "safe correction"],
+      acceptedLeadingDiagnoses: ["symptomatic hypotonic hyponatremia", "siadh", "thiazide-associated hyponatremia"],
+      dangerousDiagnoses: ["symptomatic hyponatremia", "seizure risk", "osmotic demyelination risk"],
+      conceptMap: {
+        problemFraming: ["confusion", "falls", "severe hyponatremia", "symptomatic"],
+        syndromeIdentification: ["hypotonic hyponatremia", "euvolemic hyponatremia", "siadh"],
+        differentialDiagnosis: ["siadh", "thiazide", "adrenal insufficiency", "hypothyroidism"],
+        dataInterpretation: ["serum osmolality", "urine osmolality", "urine sodium", "severity"],
+        anticipation: ["seizure", "overcorrection", "hypertonic saline", "monitoring"],
+        reassessment: ["repeat sodium", "correction rate", "q4h", "recheck"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["symptomatic hyponatremia"], penaltyPoints: 2 },
+      biasTriggers: { wrongQuestionFraming: ["just low sodium"], failureToUpdate: ["no correction monitoring"] },
+    },
+  },
+  {
+    id: "C5",
+    title: "Jaundice with RUQ Pain",
+    difficulty: "moderate",
+    traps: ["calling it hepatitis only", "missing cholangitis"],
+    domainFocus: ["differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "63-year-old patient has fever, jaundice, RUQ pain, leukocytosis, and cholestatic liver tests.",
+    hiddenRubric: {
+      mustHitConcepts: ["ascending cholangitis", "biliary obstruction", "antibiotics", "source control"],
+      acceptedLeadingDiagnoses: ["ascending cholangitis", "choledocholithiasis with infection"],
+      dangerousDiagnoses: ["ascending cholangitis", "septic shock"],
+      conceptMap: {
+        problemFraming: ["fever", "jaundice", "ruq pain", "cholestatic"],
+        syndromeIdentification: ["ascending cholangitis", "biliary sepsis"],
+        differentialDiagnosis: ["ascending cholangitis", "choledocholithiasis", "acute cholecystitis", "hepatitis"],
+        dataInterpretation: ["bilirubin", "alp", "ast", "alt", "leukocytosis"],
+        anticipation: ["ercp", "source control", "sepsis", "hemodynamic worsening"],
+        reassessment: ["fever trend", "bilirubin trend", "post drainage assessment"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["ascending cholangitis"], penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["hepatitis"], prematureClosure: ["gallstones only"] },
+    },
+  },
+  {
+    id: "C6",
+    title: "Leg Swelling and Pleuritic Pain",
+    difficulty: "moderate",
+    traps: ["calling it cellulitis only", "missing VTE"],
+    domainFocus: ["problemFraming", "differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "44-year-old woman with unilateral leg swelling develops pleuritic chest pain and tachycardia two days later.",
+    hiddenRubric: {
+      mustHitConcepts: ["vte", "dvt", "pe", "hemodynamic risk", "anticoagulation"],
+      acceptedLeadingDiagnoses: ["pulmonary embolism", "venous thromboembolism", "dvt with pe"],
+      dangerousDiagnoses: ["pulmonary embolism", "massive pe"],
+      conceptMap: {
+        problemFraming: ["unilateral leg swelling", "pleuritic chest pain", "tachycardia"],
+        syndromeIdentification: ["venous thromboembolism", "pulmonary embolism"],
+        differentialDiagnosis: ["pe", "dvt", "cellulitis", "pneumonia", "acs"],
+        dataInterpretation: ["risk factors", "tachycardia", "hypoxemia", "d-dimer"],
+        anticipation: ["hemodynamic collapse", "anticoagulation", "ctpa", "right heart strain"],
+        reassessment: ["oxygen", "vitals", "bleeding risk", "response to therapy"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["pulmonary embolism", "pe"], penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["cellulitis", "musculoskeletal"], representativenessError: ["no classic pe"] },
+    },
+  },
+  {
+    id: "C7",
+    title: "GI Bleeding on Anticoagulation",
+    difficulty: "moderate",
+    traps: ["stopping all therapy without plan", "missing resuscitation priorities"],
+    domainFocus: ["anticipation", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "70-year-old man on apixaban presents with melena, orthostasis, Hb 78 g/L, and rising BUN.",
+    hiddenRubric: {
+      mustHitConcepts: ["upper gi bleed", "resuscitation", "anticoagulant management", "reversal consideration"],
+      acceptedLeadingDiagnoses: ["upper gi bleed", "anticoagulant-associated gi bleeding"],
+      dangerousDiagnoses: ["hemorrhagic shock", "massive gi bleed"],
+      conceptMap: {
+        problemFraming: ["melena", "orthostasis", "anemia", "anticoagulation"],
+        syndromeIdentification: ["upper gi bleeding", "acute blood loss"],
+        differentialDiagnosis: ["peptic ulcer bleed", "variceal bleed", "malignancy", "avm"],
+        dataInterpretation: ["hb", "bun", "hemodynamics", "ongoing bleeding"],
+        anticipation: ["transfusion", "endoscopy", "reversal", "shock"],
+        reassessment: ["repeat hb", "vitals", "ongoing melena", "response"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["gi bleed", "hemorrhagic shock"], penaltyPoints: 2 },
+      biasTriggers: { wrongQuestionFraming: ["focus only on doac"], prematureClosure: ["hold apixaban only"] },
+    },
+  },
+  {
+    id: "C8",
+    title: "New Delirium on the Ward",
+    difficulty: "moderate",
+    traps: ["calling it age only", "not searching for precipitant"],
+    domainFocus: ["problemFraming", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "81-year-old inpatient becomes acutely confused overnight after urinary retention, constipation, and a new sedating medication.",
+    hiddenRubric: {
+      mustHitConcepts: ["delirium", "acute change", "multifactorial precipitants", "nonpharmacologic management"],
+      acceptedLeadingDiagnoses: ["delirium", "multifactorial delirium"],
+      dangerousDiagnoses: ["delirium due to sepsis", "stroke", "medication toxicity"],
+      conceptMap: {
+        problemFraming: ["acute confusion", "delirium", "hospitalized", "precipitant"],
+        syndromeIdentification: ["delirium", "toxic metabolic encephalopathy"],
+        differentialDiagnosis: ["medication effect", "urinary retention", "constipation", "infection", "stroke"],
+        dataInterpretation: ["acute onset", "attention", "retention", "med changes"],
+        anticipation: ["falls", "aspiration", "self-harm", "deconditioning"],
+        reassessment: ["review meds", "bladder scan", "repeat neuro exam", "follow mentation"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["delirium", "stroke", "sepsis"], penaltyPoints: 2 },
+      biasTriggers: { availabilityBias: ["dementia"], wrongQuestionFraming: ["just old age"] },
+    },
+  },
+  {
+    id: "C9",
+    title: "Metabolic Acidosis with Tachypnea",
+    difficulty: "moderate",
+    traps: ["calling it sepsis only", "missing DKA"],
+    domainFocus: ["syndromeIdentification", "dataInterpretation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "28-year-old patient with diabetes presents with abdominal pain, vomiting, tachypnea, glucose 28 mmol/L, and high anion gap metabolic acidosis.",
+    hiddenRubric: {
+      mustHitConcepts: ["dka", "anion gap", "ketosis", "fluids", "insulin", "potassium"],
+      acceptedLeadingDiagnoses: ["dka", "diabetic ketoacidosis"],
+      dangerousDiagnoses: ["dka", "severe acidosis", "cerebral edema"],
+      conceptMap: {
+        problemFraming: ["diabetes", "abdominal pain", "tachypnea", "anion gap"],
+        syndromeIdentification: ["dka", "high anion gap metabolic acidosis"],
+        differentialDiagnosis: ["dka", "sepsis", "toxic alcohol", "lactic acidosis"],
+        dataInterpretation: ["anion gap", "ketones", "glucose", "potassium", "bicarbonate"],
+        anticipation: ["potassium drop", "insulin", "icu", "cerebral edema"],
+        reassessment: ["anion gap closure", "glucose", "potassium", "repeat gas"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["dka"], penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["sepsis"], failureToUpdate: ["ignores anion gap"] },
+    },
+  },
+  {
+    id: "C10",
+    title: "Sudden Back Pain and Hypotension",
+    difficulty: "high",
+    traps: ["assuming renal colic", "missing aortic catastrophe"],
+    domainFocus: ["differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "74-year-old man with vascular disease presents with sudden severe back pain, diaphoresis, hypotension, and a pulsatile abdominal mass.",
+    hiddenRubric: {
+      mustHitConcepts: ["aaa rupture", "aortic catastrophe", "vascular emergency", "immediate escalation"],
+      acceptedLeadingDiagnoses: ["ruptured aaa", "aortic catastrophe"],
+      dangerousDiagnoses: ["ruptured aaa", "aortic dissection"],
+      conceptMap: {
+        problemFraming: ["sudden back pain", "hypotension", "vascular disease", "pulsatile mass"],
+        syndromeIdentification: ["aortic catastrophe", "ruptured aaa"],
+        differentialDiagnosis: ["ruptured aaa", "aortic dissection", "renal colic", "mesenteric ischemia"],
+        dataInterpretation: ["shock", "pulsatile mass", "abdominal pain", "hemodynamics"],
+        anticipation: ["death", "massive hemorrhage", "vascular surgery", "resuscitation"],
+        reassessment: ["hemodynamics", "blood products", "operative readiness"],
+      },
+      dangerousMissPenalty: { ifMissesAny: ["ruptured aaa", "aortic dissection"], penaltyPoints: 3 },
+      biasTriggers: { representativenessError: ["looks like renal colic"], prematureClosure: ["kidney stone"] },
+    },
+  },
+];
 
-const manualErrorTagOptions = [
-  "poor_problem_representation",
-  "premature_closure",
-  "weak_differential",
-  "data_misinterpretation",
-  "no_anticipation",
-  "weak_reassessment",
-  "syndrome_misidentification",
-  "fragmented_thinking",
-]
+const defaultSession = {
+  sessionCode: "CRFT-001",
+  isOpen: true,
+  dayIndex: 1,
+  phase: "baseline",
+  currentCaseId: "C1",
+};
 
-function MetricCard({ label, value, subtext }) {
-  return (
-    <div style={{ ...card, padding: 16 }}>
-      <div style={{ fontSize: 13, color: "#475569", marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 30, fontWeight: 800 }}>{value}</div>
-      {subtext ? <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>{subtext}</div> : null}
-    </div>
-  )
-}
+const emptyResidentResponse = {
+  role: "Resident",
+  residentId: "R1",
+  pgy: "PGY1",
+  confidence: 50,
+  leadingDiagnosis: "",
+  freeText: "",
+  startedAt: null,
+  submittedAt: null,
+  timeSeconds: 0,
+};
 
-function normalizeText(text = "") {
-  return String(text)
-    .toLowerCase()
-    .replace(/[^\w\s%/-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
+const emptyManualScoring = () => ({
+  evaluatorId: "Evaluator-1",
+  domainScores: Object.fromEntries(CRFT_DOMAINS.map((d) => [d, 0])),
+  selectedBiasTags: [],
+  selectedErrorTags: [],
+  comments: "",
+});
+
+function normalize(text) {
+  return (text || "").toLowerCase().trim();
 }
 
 function includesAny(text, phrases = []) {
-  const t = normalizeText(text)
-  return phrases.some((p) => t.includes(normalizeText(p)))
+  const normalized = normalize(text);
+  return phrases.some((p) => normalized.includes(normalize(p)));
 }
 
-function countConceptHits(text, conceptGroups = []) {
-  let hits = 0
-  const matched = []
-  for (const group of conceptGroups) {
-    const found = group.some((term) => includesAny(text, [term]))
-    if (found) {
-      hits += 1
-      matched.push(group[0])
-    }
-  }
-  return { hits, matched }
+function countHits(text, phrases = []) {
+  const normalized = normalize(text);
+  return phrases.filter((p) => normalized.includes(normalize(p))).length;
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function sumDomainScores(scores) {
+  return CRFT_DOMAINS.reduce((acc, d) => acc + (Number(scores?.[d]) || 0), 0);
 }
 
 function getGlobalRating(total) {
-  if (total === 0) return "Unrated"
-  if (total <= 9) return "Junior"
-  if (total <= 15) return "Intermediate"
-  if (total <= 20) return "Senior"
-  return "Near Consultant"
+  return GLOBAL_RATING_LABELS.find((r) => total >= r.min && total <= r.max)?.label || "Unclassified";
 }
 
-function formatFirebaseDate(ts) {
-  if (!ts) return ""
-  if (typeof ts?.seconds === "number") return new Date(ts.seconds * 1000).toLocaleString()
-  if (ts instanceof Date) return ts.toLocaleString()
-  return ""
+function getAgreementClass(diff) {
+  if (diff <= 2) return "high";
+  if (diff <= 5) return "moderate";
+  return "low";
 }
 
-function exportRowsAsCsv(filename, rows) {
-  if (!rows.length) {
-    window.alert("No data to export.")
-    return
+function exactMatchCount(autoScores, manualScores) {
+  return CRFT_DOMAINS.filter((d) => Number(autoScores[d]) === Number(manualScores[d])).length;
+}
+
+function scoreDomainFromConcepts(text, conceptList = []) {
+  const hits = countHits(text, conceptList);
+  if (hits === 0) return 0;
+  if (hits === 1) return 1;
+  if (hits === 2) return 2;
+  if (hits === 3) return 3;
+  return 4;
+}
+
+function detectBiasTags(response, caseObj, domainScores) {
+  const text = normalize(response.freeText);
+  const tags = [];
+
+  if (caseObj.hiddenRubric.biasTriggers?.anchoring && response.leadingDiagnosis) {
+    const leadingLower = normalize(response.leadingDiagnosis);
+    const dangerousMentioned = includesAny(text, caseObj.hiddenRubric.dangerousDiagnoses || []);
+    if (
+      leadingLower &&
+      !dangerousMentioned &&
+      includesAny(leadingLower, caseObj.hiddenRubric.biasTriggers.anchoring)
+    ) {
+      tags.push("anchoring");
+    }
   }
-  const headers = Object.keys(rows[0])
-  const escapeCell = (value) => {
-    const text = value == null ? "" : String(value)
-    return `"${text.replace(/"/g, '""')}"`
+
+  if ((caseObj.hiddenRubric.acceptedLeadingDiagnoses?.length || 0) > 0) {
+    const diffScore = domainScores.differentialDiagnosis;
+    if (diffScore <= 1) tags.push("prematureClosure");
   }
-  const csv = [
-    headers.map(escapeCell).join(","),
-    ...rows.map((row) => headers.map((header) => escapeCell(row[header])).join(",")),
-  ].join("\n")
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
-}
 
-function flattenEvaluation(e) {
-  const autoScores = e.autoScores || e.scores || {}
-  const manualScores = e.manualScores || {}
-  const calibration = e.calibration || {}
-  return {
-    residentId: e.residentId || e.resident || "",
-    caseKey: e.universalCaseKey || "",
-    caseName: e.caseName || "",
-    sessionCode: e.sessionCode || "",
-    sessionDay: e.sessionDay ?? "",
-    phase: e.phase || "",
-    caseIndex: e.caseIndex ?? "",
-    submittedAt: formatFirebaseDate(e.createdAt),
-    timeSeconds: e.timeSeconds ?? "",
-    confidence: e.confidence ?? "",
-    leadingDiagnosis: e.leadingDiagnosis || "",
-    autoTotal: e.autoTotal ?? e.total ?? 0,
-    autoRating: e.autoRating || e.globalRating || "",
-    manualTotal: e.manualTotal ?? "",
-    manualRating: e.manualRating || "",
-    totalDifference: calibration.totalDifference ?? "",
-    agreementFlag: calibration.agreementFlag || "",
-    auto_problemFraming: autoScores.problemFraming ?? "",
-    auto_syndromeIdentification: autoScores.syndromeIdentification ?? "",
-    auto_differentialDiagnosis: autoScores.differentialDiagnosis ?? "",
-    auto_dataInterpretation: autoScores.dataInterpretation ?? "",
-    auto_anticipation: autoScores.anticipation ?? "",
-    auto_reassessment: autoScores.reassessment ?? "",
-    manual_problemFraming: manualScores.problemFraming ?? "",
-    manual_syndromeIdentification: manualScores.syndromeIdentification ?? "",
-    manual_differentialDiagnosis: manualScores.differentialDiagnosis ?? "",
-    manual_dataInterpretation: manualScores.dataInterpretation ?? "",
-    manual_anticipation: manualScores.anticipation ?? "",
-    manual_reassessment: manualScores.reassessment ?? "",
-    autoErrorTags: Array.isArray(e.autoErrorTags || e.errorTags) ? (e.autoErrorTags || e.errorTags).join("; ") : "",
-    manualErrorTags: Array.isArray(e.manualErrorTags) ? e.manualErrorTags.join("; ") : "",
-    autoFeedback: e.autoFeedback || "",
-    manualFeedback: e.manualFeedback || "",
-    evaluator: e.evaluator || "",
-    evaluatorNotes: e.evaluatorNotes || "",
-    traineeAnswer: e.traineeAnswer || "",
+  if (domainScores.dataInterpretation <= 1 && domainScores.differentialDiagnosis >= 2) {
+    tags.push("confirmationBias");
   }
-}
 
-const universalCases = [
-  {
-    key: "breathless-night",
-    title: "The Breathless Night",
-    setting: "Inpatient",
-    domainFocus: "Problem Representation + Early Framing",
-    vignette:
-      "68M with HTN, CAD presents with acute dyspnea at night, orthopnea, and mild chest tightness. No fever.",
-    progressiveData: [
-      "Vitals: HR 105, BP 160/90, RR 26, SpO₂ 90% on room air",
-      "Exam: Crackles bilaterally, mild JVP elevation",
-      "Labs: BNP elevated, troponin mildly elevated",
-      "CXR: Bilateral interstitial opacities",
-    ],
-    rubric: {
-      problemFraming: [["acute", "acute decompensated", "sudden"], ["cardiopulmonary", "cardiac", "heart failure", "pulmonary edema"], ["orthopnea", "nocturnal dyspnea"]],
-      syndromeIdentification: [["acute decompensated heart failure", "pulmonary edema", "heart failure exacerbation"], ["myocardial injury", "demand ischemia", "acs", "acute coronary syndrome"]],
-      differentialDiagnosis: [["heart failure", "pulmonary edema"], ["acute coronary syndrome", "acs", "ischemia"], ["pneumonia", "infection"]],
-      dataInterpretation: [["orthopnea"], ["bnp"], ["troponin", "demand ischemia", "context", "trend"], ["cxr", "interstitial opacities", "pulmonary edema"]],
-      anticipation: [["oxygen", "nippv", "niv"], ["diuresis", "diuretic", "furosemide"], ["deterioration", "monitor", "worsening"]],
-      reassessment: [["response to diuresis", "reassess oxygen", "follow troponin", "trend troponin", "repeat ecg"]],
-      dangerousMisses: [["pneumonia only", "just pneumonia"]],
-      feedback: {
-        anchor: "The key shift is moving from symptom description to acute cardiopulmonary syndrome with likely pulmonary edema.",
-        emphasis: "Orthopnea, BNP, and interstitial opacities should push heart failure to the top while keeping ACS overlap in mind.",
-      },
-    },
-  },
-  {
-    key: "silent-drop",
-    title: "The Silent Drop",
-    setting: "Inpatient",
-    domainFocus: "Data Interpretation (Electrolytes & Acid-Base)",
-    vignette: "55F admitted for vomiting. She is now weak and confused.",
-    progressiveData: ["K = 2.7", "HCO₃ = 36", "Chloride low", "ABG: metabolic alkalosis", "Urine chloride low"],
-    rubric: {
-      problemFraming: [["metabolic alkalosis", "chloride responsive alkalosis"], ["vomiting", "gi losses"]],
-      syndromeIdentification: [["chloride responsive metabolic alkalosis", "contraction alkalosis"], ["hypokalemia"]],
-      differentialDiagnosis: [["vomiting"], ["diuretic", "volume contraction"]],
-      dataInterpretation: [["urine chloride low", "low urine chloride"], ["bicarbonate", "metabolic alkalosis"], ["chloride responsive"]],
-      anticipation: [["normal saline", "saline"], ["kcl", "potassium chloride"], ["monitor potassium", "arrhythmia"]],
-      reassessment: [["repeat electrolytes", "repeat abg", "trend bicarbonate"]],
-      dangerousMisses: [["potassium only", "replace potassium only"]],
-      feedback: {
-        anchor: "This is not just low potassium; the syndrome is chloride-responsive metabolic alkalosis from vomiting or volume contraction.",
-        emphasis: "Urine chloride is the key pivot and treatment should include saline plus KCl, not potassium alone.",
-      },
-    },
-  },
-  {
-    key: "fever-wont-break",
-    title: "The Fever That Won’t Break",
-    setting: "Inpatient",
-    domainFocus: "Hypothesis Generation",
-    vignette: "72M with diabetes has persistent fever for 10 days despite antibiotics for presumed pneumonia.",
-    progressiveData: ["Blood cultures negative", "CT chest shows improving infiltrate", "CRP remains high", "New murmur now heard"],
-    rubric: {
-      problemFraming: [["persistent fever", "fever despite treatment"], ["reframe", "new question"]],
-      syndromeIdentification: [["persistent fever syndrome", "undiagnosed source", "ongoing inflammatory source"]],
-      differentialDiagnosis: [["endocarditis"], ["abscess"], ["drug fever", "malignancy"]],
-      dataInterpretation: [["improving infiltrate"], ["new murmur"], ["cultures negative"]],
-      anticipation: [["echocardiography", "echo", "tee"], ["search source", "reassess diagnosis"]],
-      reassessment: [["change diagnosis", "reframe", "repeat assessment"]],
-      dangerousMisses: [["escalate antibiotics blindly", "just broaden antibiotics"]],
-      feedback: {
-        anchor: "Persistent fever after partial radiologic improvement demands reframing rather than automatic antibiotic escalation.",
-        emphasis: "The new murmur is the clue that should push endocarditis or another hidden source higher.",
-      },
-    },
-  },
-  {
-    key: "quiet-creatinine-rise",
-    title: "The Quiet Creatinine Rise",
-    setting: "Inpatient",
-    domainFocus: "Trend Interpretation + Anticipation",
-    vignette: "65F is post-op day 2 and her creatinine is rising.",
-    progressiveData: ["Cr: 90 → 130 → 180", "Urine output decreasing", "FeNa 0.8%", "On ACE inhibitor and NSAIDs"],
-    rubric: {
-      problemFraming: [["aki", "acute kidney injury"], ["postoperative", "post op"]],
-      syndromeIdentification: [["hemodynamic aki", "prerenal", "multifactorial aki"]],
-      differentialDiagnosis: [["volume depletion", "hypovolemia"], ["ace inhibitor", "nsaid", "nephrotoxin"]],
-      dataInterpretation: [["creatinine trend", "rising creatinine"], ["urine output decreasing"], ["fena context", "do not over rely on fena"]],
-      anticipation: [["stop nephrotoxins", "hold ace", "stop nsaid"], ["assess volume", "fluids", "monitor potassium"]],
-      reassessment: [["repeat creatinine", "monitor urine output", "reassess volume status"]],
-      dangerousMisses: [["ignore trend"]],
-      feedback: {
-        anchor: "The signal here is the trend, not one isolated lab or a reflex reading of FeNa.",
-        emphasis: "Strong reasoning integrates trajectory, urine output, and medication exposures early enough to prevent progression.",
-      },
-    },
-  },
-  {
-    key: "hidden-clot",
-    title: "The Hidden Clot",
-    setting: "Inpatient",
-    domainFocus: "Risk Stratification + Systems Thinking",
-    vignette: "60F after orthopedic surgery is now tachycardic and mildly hypoxic.",
-    progressiveData: ["HR 110, SpO₂ 92%", "Wells score moderate", "D-dimer elevated", "CT shows segmental PE"],
-    rubric: {
-      problemFraming: [["postoperative hypoxia", "provoked vte", "pe"]],
-      syndromeIdentification: [["pulmonary embolism", "provoked pe"]],
-      differentialDiagnosis: [["pe"], ["post op atelectasis", "pneumonia"]],
-      dataInterpretation: [["ct pe", "segmental pe"], ["post op risk", "provoked"], ["wells", "pretest probability"]],
-      anticipation: [["anticoagulation"], ["hemodynamics", "rv strain", "risk stratify"]],
-      reassessment: [["monitor oxygen", "monitor bleeding", "determine duration"]],
-      dangerousMisses: [["thrombolysis immediately", "lyse everyone"]],
-      feedback: {
-        anchor: "This is provoked PE until proven otherwise, and the next job is risk stratification rather than panic escalation.",
-        emphasis: "The best answers move quickly from diagnosis to anticoagulation intensity, hemodynamics, and planned duration.",
-      },
-    },
-  },
-  {
-    key: "delirium-night-shift",
-    title: "The Delirium on Night Shift",
-    setting: "Inpatient",
-    domainFocus: "Reassessment + Dangerous Cause Search",
-    vignette: "79M admitted for cellulitis becomes agitated and disoriented overnight.",
-    progressiveData: ["Nurse notes fluctuating attention", "Temp 37.9°C, HR 104", "Bladder scan 700 mL", "Medication list includes diphenhydramine and opioids"],
-    rubric: {
-      problemFraming: [["delirium", "acute brain failure"]],
-      syndromeIdentification: [["hyperactive delirium", "delirium"]],
-      differentialDiagnosis: [["urinary retention"], ["medication", "opioid", "diphenhydramine"], ["infection", "pain", "hypoxia"]],
-      dataInterpretation: [["fluctuating attention"], ["bladder scan 700", "retention"]],
-      anticipation: [["remove trigger", "stop offending meds"], ["non pharmacologic", "reorient", "safety"]],
-      reassessment: [["after relieving retention", "reassess mental status"]],
-      dangerousMisses: [["dementia progression only", "just agitation"]],
-      feedback: {
-        anchor: "Agitation is not the diagnosis; fluctuating attention should trigger delirium framing immediately.",
-        emphasis: "Retention and anticholinergic or opioid burden are common inpatient precipitants that must be searched for quickly.",
-      },
-    },
-  },
-  {
-    key: "clinic-fatigue-anemia",
-    title: "The Tired Clinic Patient",
-    setting: "Outpatient",
-    domainFocus: "Problem Representation + Initial Workup",
-    vignette: "34F presents with 3 months of fatigue, exertional dyspnea, and reduced exercise tolerance.",
-    progressiveData: ["Hb 89 g/L", "MCV 72", "Ferritin low", "Periods reported as heavy"],
-    rubric: {
-      problemFraming: [["microcytic anemia", "iron deficiency anemia"]],
-      syndromeIdentification: [["iron deficiency"]],
-      differentialDiagnosis: [["heavy menses", "gynecologic bleeding"], ["gi bleeding"]],
-      dataInterpretation: [["mcv 72", "microcytic"], ["ferritin low"]],
-      anticipation: [["iron replacement"], ["look for source", "bleeding source"]],
-      reassessment: [["repeat hemoglobin", "response to iron"]],
-      dangerousMisses: [["nonspecific fatigue only"]],
-      feedback: {
-        anchor: "The syndrome here is chronic iron deficiency anemia, not generic fatigue.",
-        emphasis: "Strong reasoning links microcytosis and low ferritin to source evaluation, especially bleeding history.",
-      },
-    },
-  },
-  {
-    key: "clinic-weight-loss-diabetes",
-    title: "The Unintended Weight Loss",
-    setting: "Outpatient",
-    domainFocus: "Differential Diagnosis + Prioritization",
-    vignette: "52M with polyuria, fatigue, and 7-kg unintentional weight loss over 4 months comes to clinic.",
-    progressiveData: ["Random glucose 17.8 mmol/L", "A1c 11.2%", "No abdominal pain", "BMI 24"],
-    rubric: {
-      problemFraming: [["symptomatic hyperglycemia", "new uncontrolled diabetes"], ["catabolic", "weight loss"]],
-      syndromeIdentification: [["symptomatic diabetes", "severe hyperglycemia"]],
-      differentialDiagnosis: [["type 2 diabetes"], ["lada", "atypical diabetes"]],
-      dataInterpretation: [["a1c 11.2", "glucose 17.8"], ["weight loss", "catabolic"]],
-      anticipation: [["prompt treatment", "same day escalation", "insulin", "urgent follow up"]],
-      reassessment: [["close follow up", "monitor response"]],
-      dangerousMisses: [["routine mild diabetes follow up only"]],
-      feedback: {
-        anchor: "Weight loss changes this from routine outpatient diabetes to symptomatic catabolic hyperglycemia.",
-        emphasis: "The best responses recognize urgency, think about treatment intensity, and do not trivialize the weight loss.",
-      },
-    },
-  },
-  {
-    key: "clinic-edema-proteinuria",
-    title: "The Swollen Ankles",
-    setting: "Outpatient",
-    domainFocus: "Syndrome Identification",
-    vignette: "48F presents with 2 months of leg swelling and frothy urine.",
-    progressiveData: ["BP 148/92", "Urinalysis: 4+ protein", "Albumin low", "Creatinine near baseline"],
-    rubric: {
-      problemFraming: [["nephrotic syndrome"]],
-      syndromeIdentification: [["proteinuria", "nephrotic syndrome"]],
-      differentialDiagnosis: [["glomerular disease"], ["secondary causes", "diabetes", "lupus"]],
-      dataInterpretation: [["4+ protein", "heavy proteinuria"], ["low albumin"], ["frothy urine"]],
-      anticipation: [["quantify proteinuria", "renal workup"], ["thrombosis risk"]],
-      reassessment: [["repeat kidney function", "follow albumin"]],
-      dangerousMisses: [["venous insufficiency only"]],
-      feedback: {
-        anchor: "Edema plus frothy urine plus low albumin is a syndrome-level pattern, not isolated leg swelling.",
-        emphasis: "Correct reasoning names nephrotic syndrome early and then moves to cause, risk, and quantification.",
-      },
-    },
-  },
-  {
-    key: "clinic-chest-pain-followup",
-    title: "The Chest Pain Follow-up",
-    setting: "Outpatient",
-    domainFocus: "Diagnostic Precision + Safe De-escalation",
-    vignette: "45M has intermittent chest pain after stress. It is sharp and worse with inspiration. He is seen in clinic after an unrevealing ED visit.",
-    progressiveData: ["ECG normal", "Troponin normal", "CT negative for PE", "Pain reproducible on palpation"],
-    rubric: {
-      problemFraming: [["low risk chest pain", "non cardiac chest pain", "musculoskeletal chest pain"]],
-      syndromeIdentification: [["musculoskeletal", "chest wall pain"]],
-      differentialDiagnosis: [["musculoskeletal"], ["acs low likelihood", "pe low likelihood"]],
-      dataInterpretation: [["reproducible pain"], ["negative ecg", "negative troponin"], ["negative ct pe"]],
-      anticipation: [["reassurance", "safety net", "return precautions"]],
-      reassessment: [["follow up if changes", "return if worsening"]],
-      dangerousMisses: [["restart full testing cascade", "anxiety only dismissively"]],
-      feedback: {
-        anchor: "Prior negative testing matters; the task is safe de-escalation, not restarting the whole workup.",
-        emphasis: "Reproducible pleuritic pain with negative ED testing should push musculoskeletal pain and safety-net counseling.",
-      },
-    },
-  },
-]
-
-function computeDomainScore(hits, totalGroups) {
-  if (totalGroups === 0) return 0
-  const ratio = hits / totalGroups
-  if (hits === 0) return 1
-  if (ratio < 0.5) return 2
-  if (ratio < 1) return 3
-  return 4
-}
-
-function deriveErrors(caseDef, answer, leadingDiagnosis) {
-  const combined = normalizeText(`${leadingDiagnosis} ${answer}`)
-  const tags = []
-  if (caseDef.key === "breathless-night" && includesAny(combined, ["pneumonia"]) && !includesAny(combined, ["heart failure", "pulmonary edema"])) tags.push("premature_closure")
-  if (!includesAny(combined, ["acute", "syndrome", "problem", "represents", "likely"])) tags.push("poor_problem_representation")
-  if (!includesAny(combined, ["monitor", "reassess", "repeat", "trend", "watch"])) tags.push("weak_reassessment")
-  if (!includesAny(combined, ["anticipate", "risk", "next", "monitor", "deterioration", "worsening", "complication"])) tags.push("no_anticipation")
-  return [...new Set(tags)]
-}
-
-function autoScoreCase(caseDef, leadingDiagnosis, answer) {
-  const combined = `${leadingDiagnosis} ${answer}`
-  const rubric = caseDef.rubric
-  const scores = {}
-  const hitSummary = {}
-  for (const d of domains) {
-    const groups = rubric[d.key] || []
-    const { hits, matched } = countConceptHits(combined, groups)
-    scores[d.key] = computeDomainScore(hits, groups.length)
-    hitSummary[d.key] = matched
+  if (domainScores.problemFraming <= 1) {
+    tags.push("wrongQuestionFraming");
   }
-  const dangerousMiss = (rubric.dangerousMisses || []).some((group) => group.some((term) => includesAny(combined, [term])))
+
+  if (domainScores.dataInterpretation <= 1 && domainScores.reassessment <= 1) {
+    tags.push("failureToUpdate");
+  }
+
+  return [...new Set(tags)].slice(0, 3);
+}
+
+function detectErrorTags(response, caseObj, domainScores, dangerousMiss) {
+  const tags = [];
+
+  if (dangerousMiss) tags.push("missedLifeThreatening");
+  if (domainScores.problemFraming <= 1) tags.push("poorProblemRepresentation");
+  if (domainScores.differentialDiagnosis <= 1) tags.push("weakDifferentialPrioritization");
+  if (domainScores.dataInterpretation <= 1) tags.push("incorrectDataInterpretation");
+  if (domainScores.anticipation <= 1) tags.push("failureToAnticipate");
+  if (domainScores.reassessment <= 1) tags.push("noReassessmentStrategy");
+
+  const confidenceHigh = Number(response.confidence) >= 80;
+  const total = sumDomainScores(domainScores);
+  if (confidenceHigh && total <= 10) tags.push("overconfidenceMismatch");
+
+  if (domainScores.anticipation <= 1 || domainScores.reassessment <= 1) {
+    tags.push("unsafeIncompleteManagement");
+  }
+
+  return [...new Set(tags)].slice(0, 5);
+}
+
+function computeDangerousMiss(response, caseObj) {
+  const text = normalize(`${response.leadingDiagnosis} ${response.freeText}`);
+  const expectedDangerous = caseObj.hiddenRubric.dangerousDiagnoses || [];
+  if (!expectedDangerous.length) return false;
+  const mentionsAnyDangerous = includesAny(text, expectedDangerous);
+  return !mentionsAnyDangerous;
+}
+
+function autoScoreSubmission(response, caseObj) {
+  const text = `${response.leadingDiagnosis} ${response.freeText}`;
+  const conceptMap = caseObj.hiddenRubric.conceptMap;
+
+  const domainScores = {
+    problemFraming: scoreDomainFromConcepts(text, conceptMap.problemFraming),
+    syndromeIdentification: scoreDomainFromConcepts(text, conceptMap.syndromeIdentification),
+    differentialDiagnosis: scoreDomainFromConcepts(text, conceptMap.differentialDiagnosis),
+    dataInterpretation: scoreDomainFromConcepts(text, conceptMap.dataInterpretation),
+    anticipation: scoreDomainFromConcepts(text, conceptMap.anticipation),
+    reassessment: scoreDomainFromConcepts(text, conceptMap.reassessment),
+  };
+
+  const dangerousMiss = computeDangerousMiss(response, caseObj);
+  let total = sumDomainScores(domainScores);
+
   if (dangerousMiss) {
-    scores.differentialDiagnosis = Math.min(scores.differentialDiagnosis, 2)
-    scores.dataInterpretation = Math.min(scores.dataInterpretation, 2)
+    total = clamp(
+      total - (caseObj.hiddenRubric.dangerousMissPenalty?.penaltyPoints || 0),
+      0,
+      24
+    );
   }
-  const total = Object.values(scores).reduce((sum, n) => sum + n, 0)
-  const errorTags = deriveErrors(caseDef, answer, leadingDiagnosis)
-  const weakDomains = domains.filter((d) => scores[d.key] <= 2).map((d) => d.title)
-  const autoFeedback = [
-    rubric.feedback?.anchor || "",
-    rubric.feedback?.emphasis || "",
-    weakDomains.length ? `Priority improvement domains: ${weakDomains.join(", ")}.` : "All major domains were represented.",
-  ].filter(Boolean).join(" ")
+
+  const biasTags = detectBiasTags(response, caseObj, domainScores);
+  const errorTags = detectErrorTags(response, caseObj, domainScores, dangerousMiss);
+
   return {
-    scores,
+    domainScores,
     total,
-    rating: getGlobalRating(total),
+    globalRating: getGlobalRating(total),
+    dangerousMiss,
+    biasTags,
     errorTags,
-    autoFeedback,
-    hitSummary,
-  }
+  };
 }
 
-function buildManualFeedback(caseDef, manualScores, manualTags) {
-  const strong = domains.filter((d) => Number(manualScores[d.key] || 0) >= 3).map((d) => d.title)
-  const weak = domains.filter((d) => Number(manualScores[d.key] || 0) <= 2).map((d) => d.title)
+function buildStrengths(domainScores) {
+  return CRFT_DOMAINS.filter((d) => domainScores[d] >= 3).map((d) => DOMAIN_LABELS[d]);
+}
+
+function buildWeakestDomain(domainScores) {
+  const ordered = [...CRFT_DOMAINS].sort((a, b) => domainScores[a] - domainScores[b]);
+  return ordered[0];
+}
+
+function buildFeedback({ response, caseObj, autoResult, manualResult }) {
+  const strengths = buildStrengths(autoResult.domainScores);
+  const weakest = buildWeakestDomain(autoResult.domainScores);
+
+  const biasFeedback = autoResult.biasTags
+    .map((tag) =>
+      COGNITIVE_BIASES[tag]?.feedback({
+        leadingDx: response.leadingDiagnosis,
+        dangerousExpected: caseObj.hiddenRubric.dangerousDiagnoses,
+      })
+    )
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const errorFeedback = autoResult.errorTags
+    .map((tag) =>
+      REASONING_ERRORS[tag]?.feedback({
+        dangerousExpected: caseObj.hiddenRubric.dangerousDiagnoses,
+      })
+    )
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const topStrengthLine = strengths.length
+    ? `Strengths: ${strengths.join(", ")}.`
+    : "Strengths: You engaged with the case, but the reasoning structure needs more organization.";
+
+  const priorityLine = `Priority for the next case: improve ${DOMAIN_LABELS[weakest].toLowerCase()} by making your reasoning more explicit and better prioritized.`;
+
+  const dangerousLine = autoResult.dangerousMiss
+    ? "Critical miss: a dangerous diagnosis should have been considered earlier in the reasoning process."
+    : "Safety signal: no dangerous-miss flag was triggered.";
+
+  const calibrationLine = manualResult
+    ? `Calibration: manual total ${manualResult.total}/24 vs auto total ${autoResult.total}/24.`
+    : "Calibration: manual review pending.";
+
   return [
-    caseDef?.rubric?.feedback?.anchor || "",
-    strong.length ? `Strengths: ${strong.join(", ")}.` : "",
-    weak.length ? `Priority improvement domains: ${weak.join(", ")}.` : "",
-    manualTags.length ? `Key reasoning concerns: ${manualTags.join(", ")}.` : "",
-    caseDef?.rubric?.feedback?.emphasis || "",
-  ].filter(Boolean).join(" ")
+    topStrengthLine,
+    dangerousLine,
+    ...biasFeedback,
+    ...errorFeedback,
+    priorityLine,
+    calibrationLine,
+  ].join(" ");
 }
 
-function calibrationFrom(autoScores, manualScores, autoTotal, manualTotal) {
-  const domainDifferences = {}
-  let exactMatches = 0
-  for (const d of domains) {
-    const diff = Math.abs(Number(autoScores?.[d.key] || 0) - Number(manualScores?.[d.key] || 0))
-    domainDifferences[d.key] = diff
-    if (diff === 0) exactMatches += 1
-  }
-  const totalDifference = Math.abs(Number(autoTotal || 0) - Number(manualTotal || 0))
-  let agreementFlag = "low"
-  if (totalDifference <= 1 && exactMatches >= 4) agreementFlag = "high"
-  else if (totalDifference <= 3 && exactMatches >= 2) agreementFlag = "moderate"
-  return { domainDifferences, totalDifference, agreementFlag, exactMatchDomains: exactMatches }
+function buildManualResult(manual) {
+  const total = sumDomainScores(manual.domainScores);
+  return {
+    ...manual,
+    total,
+    globalRating: getGlobalRating(total),
+  };
 }
 
-function ResidentPortal({
-  residentId,
-  sessionConfig,
-  residentSessionCode,
-  setResidentSessionCode,
-  residentUnlocked,
-  unlockResidentSession,
-  releasedCase,
-  alreadySubmitted,
-  submitResidentAnswer,
-  handleLogout,
-  statusMessage,
+function buildCalibration(autoResult, manualResult) {
+  const totalDifference = Math.abs((autoResult?.total || 0) - (manualResult?.total || 0));
+  const domainDifferences = Object.fromEntries(
+    CRFT_DOMAINS.map((d) => [
+      d,
+      Math.abs((autoResult?.domainScores?.[d] || 0) - (manualResult?.domainScores?.[d] || 0)),
+    ])
+  );
+
+  return {
+    totalDifference,
+    domainDifferences,
+    agreementClass: getAgreementClass(totalDifference),
+    exactMatchDomains: exactMatchCount(autoResult.domainScores, manualResult.domainScores),
+  };
+}
+
+function buildSubmissionRecord({
+  session,
+  caseObj,
+  response,
+  autoResult,
+  manualResult,
+  calibration,
+  feedbackText,
 }) {
-  const [answer, setAnswer] = useState("")
-  const [leadingDiagnosis, setLeadingDiagnosis] = useState("")
-  const [confidence, setConfidence] = useState(50)
+  return {
+    sessionCode: session.sessionCode,
+    sessionDay: session.dayIndex,
+    phase: session.phase,
+    caseId: caseObj.id,
+    caseTitle: caseObj.title,
+    residentId: response.residentId,
+    pgy: response.pgy,
+    role: response.role,
+    confidence: Number(response.confidence),
+    leadingDiagnosis: response.leadingDiagnosis,
+    freeText: response.freeText,
+    timeSeconds: Number(response.timeSeconds),
+    startedAt: response.startedAt,
+    submittedAt: response.submittedAt,
 
+    autoDomainScores: autoResult.domainScores,
+    autoTotal: autoResult.total,
+    autoGlobalRating: autoResult.globalRating,
+    autoBiasTags: autoResult.biasTags,
+    autoErrorTags: autoResult.errorTags,
+    dangerousMiss: autoResult.dangerousMiss,
+
+    manualDomainScores: manualResult?.domainScores || null,
+    manualTotal: manualResult?.total || null,
+    manualGlobalRating: manualResult?.globalRating || null,
+    manualBiasTags: manualResult?.selectedBiasTags || [],
+    manualErrorTags: manualResult?.selectedErrorTags || [],
+    manualComments: manualResult?.comments || "",
+
+    calibration: calibration || null,
+    feedbackText,
+
+    exportFlat: {
+      ...Object.fromEntries(CRFT_DOMAINS.map((d) => [`auto_${d}`, autoResult.domainScores[d]])),
+      ...Object.fromEntries(
+        CRFT_DOMAINS.map((d) => [`manual_${d}`, manualResult?.domainScores?.[d] ?? ""])
+      ),
+      autoTotal: autoResult.total,
+      manualTotal: manualResult?.total ?? "",
+      calibrationTotalDifference: calibration?.totalDifference ?? "",
+      agreementClass: calibration?.agreementClass ?? "",
+    },
+  };
+}
+
+function average(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function computeResidentProfile(records, residentId) {
+  const mine = records.filter((r) => r.residentId === residentId);
+  return {
+    residentId,
+    assessments: mine.length,
+    avgAutoTotal: average(mine.map((r) => r.autoTotal)),
+    avgManualTotal: average(mine.map((r) => r.manualTotal).filter((n) => Number.isFinite(n))),
+    dangerousMissRate: average(mine.map((r) => (r.dangerousMiss ? 1 : 0))),
+    avgConfidence: average(mine.map((r) => r.confidence)),
+    avgTimeSeconds: average(mine.map((r) => r.timeSeconds)),
+    weakestDomain: [...CRFT_DOMAINS].sort(
+      (a, b) =>
+        average(mine.map((r) => r.autoDomainScores[a])) -
+        average(mine.map((r) => r.autoDomainScores[b]))
+    )[0],
+  };
+}
+
+function toCsv(records) {
+  if (!records.length) return "";
+  const headers = [
+    "sessionCode",
+    "sessionDay",
+    "phase",
+    "caseId",
+    "caseTitle",
+    "residentId",
+    "pgy",
+    "confidence",
+    "leadingDiagnosis",
+    "timeSeconds",
+    ...CRFT_DOMAINS.map((d) => `auto_${d}`),
+    "autoTotal",
+    "autoGlobalRating",
+    ...CRFT_DOMAINS.map((d) => `manual_${d}`),
+    "manualTotal",
+    "manualGlobalRating",
+    "dangerousMiss",
+    "autoBiasTags",
+    "autoErrorTags",
+    "manualBiasTags",
+    "manualErrorTags",
+    "calibrationTotalDifference",
+    "agreementClass",
+    "feedbackText",
+  ];
+
+  const rows = records.map((r) => [
+    r.sessionCode,
+    r.sessionDay,
+    r.phase,
+    r.caseId,
+    r.caseTitle,
+    r.residentId,
+    r.pgy,
+    r.confidence,
+    JSON.stringify(r.leadingDiagnosis || ""),
+    r.timeSeconds,
+    ...CRFT_DOMAINS.map((d) => r.autoDomainScores[d]),
+    r.autoTotal,
+    r.autoGlobalRating,
+    ...CRFT_DOMAINS.map((d) => r.manualDomainScores?.[d] ?? ""),
+    r.manualTotal ?? "",
+    r.manualGlobalRating ?? "",
+    r.dangerousMiss,
+    JSON.stringify(r.autoBiasTags),
+    JSON.stringify(r.autoErrorTags),
+    JSON.stringify(r.manualBiasTags || []),
+    JSON.stringify(r.manualErrorTags || []),
+    r.calibration?.totalDifference ?? "",
+    r.calibration?.agreementClass ?? "",
+    JSON.stringify(r.feedbackText || ""),
+  ]);
+
+  return [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+    .join("\n");
+}
+
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function Button({ children, onClick, variant = "primary", className = "" }) {
+  const styles =
+    variant === "primary"
+      ? "bg-slate-900 text-white"
+      : variant === "secondary"
+      ? "border border-slate-300 bg-white text-slate-900"
+      : "bg-slate-100 text-slate-900";
   return (
-    <div style={pageWrap}>
-      <div style={container}>
-        <div style={{ background: "linear-gradient(135deg, #0c4a6e, #0f766e)", color: "white", borderRadius: 18, padding: 22, marginBottom: 18 }}>
-          <div style={{ fontSize: 28, fontWeight: 800 }}>Resident Portal · {residentId}</div>
-        </div>
+    <button
+      onClick={onClick}
+      className={`rounded-2xl px-4 py-2 text-sm font-medium shadow-sm ${styles} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
 
-        <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>Resident Portal · {residentId}</div>
-            <div style={{ color: "#475569", marginTop: 6 }}>Released-case access only. One-time submission. No case browsing.</div>
-          </div>
-          <button type="button" onClick={handleLogout} style={{ ...buttonBase, background: "#475569" }}>Logout</button>
-        </div>
-
-        {statusMessage ? <div style={{ ...card, marginBottom: 16, background: "#ecfeff" }}>{statusMessage}</div> : null}
-
-        <div style={{ ...card, marginBottom: 16 }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Session code</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10 }}>
-            <input value={residentSessionCode} onChange={(e) => setResidentSessionCode(e.target.value)} style={inputStyle} />
-            <button type="button" onClick={unlockResidentSession} style={{ ...buttonBase, background: "#0f766e" }}>Unlock</button>
-          </div>
-          <div style={{ marginTop: 10, color: residentUnlocked ? "#166534" : "#475569" }}>
-            {residentUnlocked ? "Session unlocked." : sessionConfig?.isOpen ? "Session is open." : "Session is closed."}
-          </div>
-          <div style={{ marginTop: 10, color: "#64748b", fontSize: 13 }}>
-            Session day: <strong>{sessionConfig?.sessionDay ?? "—"}</strong> · Phase: <strong>{sessionConfig?.phase || "—"}</strong> · Case index: <strong>{sessionConfig?.caseIndex ?? "—"}</strong>
-          </div>
-        </div>
-
-        <div style={card}>
-          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 14 }}>Released Case</div>
-          {!releasedCase ? (
-            <div style={{ color: "#64748b" }}>No case has been released yet.</div>
-          ) : (
-            <>
-              <div style={{ fontSize: 18, fontWeight: 800 }}>{releasedCase.title} <span style={{ fontWeight: 400 }}>· {releasedCase.setting}</span></div>
-              <div style={{ marginTop: 10, color: "#334155" }}>{releasedCase.domainFocus}</div>
-              <div style={{ marginTop: 10 }}>{releasedCase.vignette}</div>
-              <div style={{ marginTop: 12, fontWeight: 800 }}>Progressive data</div>
-              <ul>{releasedCase.progressiveData.map((item) => <li key={item}>{item}</li>)}</ul>
-
-              <div style={{ marginTop: 12, fontWeight: 800 }}>Leading diagnosis</div>
-              <input value={leadingDiagnosis} onChange={(e) => setLeadingDiagnosis(e.target.value)} style={{ ...inputStyle, marginTop: 8 }} disabled={!residentUnlocked || alreadySubmitted} placeholder="Enter your leading diagnosis" />
-
-              <div style={{ marginTop: 12, fontWeight: 800 }}>Confidence (0–100%)</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10, alignItems: "center", marginTop: 8 }}>
-                <input type="range" min="0" max="100" value={confidence} onChange={(e) => setConfidence(Number(e.target.value))} disabled={!residentUnlocked || alreadySubmitted} />
-                <div style={{ fontWeight: 800 }}>{confidence}%</div>
-              </div>
-
-              <div style={{ marginTop: 12, fontWeight: 800 }}>Your reasoning</div>
-              <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Enter your framing, syndrome, prioritized differential, interpretation, and next steps." style={{ ...textareaStyle, marginTop: 8, minHeight: 180 }} disabled={!residentUnlocked || alreadySubmitted} />
-
-              {alreadySubmitted ? <div style={{ marginTop: 12, color: "#166534", fontWeight: 700 }}>This resident already submitted this released case.</div> : null}
-
-              <button type="button" onClick={() => submitResidentAnswer({ answer, leadingDiagnosis, confidence })} style={{ ...buttonBase, background: "#0f766e", marginTop: 16 }} disabled={!residentUnlocked || alreadySubmitted}>Submit Once</button>
-            </>
-          )}
-        </div>
+function Card({ title, children, right }) {
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {right}
       </div>
-    </div>
-  )
+      <div className="mt-4">{children}</div>
+    </section>
+  );
 }
 
 export default function App() {
-  const [user, setUser] = useState(null)
-  const [portal, setPortal] = useState(localStorage.getItem("crft_portal") || "")
-  const [residentId, setResidentId] = useState(localStorage.getItem("crft_resident_id") || "R1")
-  const [residentSessionCode, setResidentSessionCode] = useState("")
-  const [residentUnlocked, setResidentUnlocked] = useState(false)
-  const [staffEmail, setStaffEmail] = useState("")
-  const [staffPassword, setStaffPassword] = useState("")
-  const [evaluations, setEvaluations] = useState([])
-  const [sessionConfig, setSessionConfig] = useState(null)
-  const [statusMessage, setStatusMessage] = useState("")
-  const [activeStaffTab, setActiveStaffTab] = useState("session")
-  const [activeDirectorTab, setActiveDirectorTab] = useState("leadership")
-  const [sessionEditorCode, setSessionEditorCode] = useState("")
-  const [sessionEditorOpen, setSessionEditorOpen] = useState(false)
-  const [sessionEditorCaseKey, setSessionEditorCaseKey] = useState("")
-  const [sessionEditorDay, setSessionEditorDay] = useState(1)
-  const [sessionEditorPhase, setSessionEditorPhase] = useState("no_feedback")
-  const [sessionEditorCaseIndex, setSessionEditorCaseIndex] = useState(1)
+  const [session, setSession] = useState(defaultSession);
+  const [response, setResponse] = useState({
+    ...emptyResidentResponse,
+    startedAt: new Date().toISOString(),
+  });
+  const [manual, setManual] = useState(emptyManualScoring());
+  const [records, setRecords] = useState([]);
+  const [submittedKeys, setSubmittedKeys] = useState({});
 
-  const [selectedRecordId, setSelectedRecordId] = useState("")
-  const [manualScores, setManualScores] = useState({ ...initialScores })
-  const [manualNotes, setManualNotes] = useState("")
-  const [manualEvaluator, setManualEvaluator] = useState("")
-  const [manualErrorTags, setManualErrorTags] = useState([])
+  const currentCase = useMemo(
+    () => CASE_LIBRARY.find((c) => c.id === session.currentCaseId) || CASE_LIBRARY[0],
+    [session.currentCaseId]
+  );
 
-  useEffect(() => {
-    const unsub = watchAuth((u) => setUser(u))
-    return () => unsub()
-  }, [])
+  const submissionKey = `${session.sessionCode}-${session.dayIndex}-${response.residentId}`;
 
-  useEffect(() => {
-    if (!user) return
-    const unsubSession = subscribeSessionConfig((data) => {
-      setSessionConfig(data || null)
-      setSessionEditorCode(data?.sessionCode || "")
-      setSessionEditorOpen(Boolean(data?.isOpen))
-      setSessionEditorCaseKey(data?.releasedCaseKey || data?.activeCase || "")
-      setSessionEditorDay(Number(data?.sessionDay || 1))
-      setSessionEditorPhase(data?.phase || "no_feedback")
-      setSessionEditorCaseIndex(Number(data?.caseIndex || 1))
-    })
-    return () => unsubSession()
-  }, [user])
+  const autoResult = useMemo(() => autoScoreSubmission(response, currentCase), [response, currentCase]);
+  const manualResult = useMemo(() => buildManualResult(manual), [manual]);
+  const calibration = useMemo(() => buildCalibration(autoResult, manualResult), [autoResult, manualResult]);
+  const feedbackText = useMemo(
+    () => buildFeedback({ response, caseObj: currentCase, autoResult, manualResult }),
+    [response, currentCase, autoResult, manualResult]
+  );
 
-  useEffect(() => {
-    if (!user || portal === "resident") return
-    const unsub = subscribeEvaluations((rows) => setEvaluations(rows || []))
-    return () => unsub()
-  }, [user, portal])
-
-  useEffect(() => {
-    if (!statusMessage) return
-    const t = setTimeout(() => setStatusMessage(""), 2500)
-    return () => clearTimeout(t)
-  }, [statusMessage])
-
-  const releasedCaseKey = sessionConfig?.releasedCaseKey || sessionConfig?.activeCase || ""
-  const releasedCase = useMemo(() => universalCases.find((c) => c.key === releasedCaseKey) || null, [releasedCaseKey])
-  const currentSession = sessionConfig?.sessionCode || ""
-  const residentSubmitKey = `crft_submitted_${residentId}_${currentSession}_${releasedCaseKey}`
-  const residentStartKey = `crft_started_${residentId}_${currentSession}_${releasedCaseKey}`
-  const alreadySubmitted = Boolean(localStorage.getItem(residentSubmitKey))
-
-  const selectedRecord = useMemo(
-    () => evaluations.find((e) => e.id === selectedRecordId) || null,
-    [evaluations, selectedRecordId]
-  )
-
-  const manualTotal = useMemo(
-    () => Object.values(manualScores).reduce((sum, value) => sum + Number(value || 0), 0),
-    [manualScores]
-  )
-
-  const submittedRows = useMemo(
-    () => [...evaluations].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
-    [evaluations]
-  )
-
-  const calibrationMetrics = useMemo(() => {
-    const rows = evaluations.filter((e) => e.manualScores && e.calibration)
-    if (!rows.length) return { n: 0, avgTotalDifference: "0.0", highAgreement: 0, avgDomainDiffs: {} }
-    const avgTotalDifference = (rows.reduce((sum, e) => sum + Number(e.calibration?.totalDifference || 0), 0) / rows.length).toFixed(1)
-    const highAgreement = rows.filter((e) => e.calibration?.agreementFlag === "high").length
-    const avgDomainDiffs = {}
-    for (const d of domains) {
-      avgDomainDiffs[d.key] = (
-        rows.reduce((sum, e) => sum + Number(e.calibration?.domainDifferences?.[d.key] || 0), 0) / rows.length
-      ).toFixed(2)
-    }
-    return { n: rows.length, avgTotalDifference, highAgreement, avgDomainDiffs }
-  }, [evaluations])
-
-  const leadershipMetrics = useMemo(() => {
-    const totalAssessments = evaluations.length
-    const autoTotals = evaluations.map((e) => Number(e.autoTotal ?? e.total ?? 0))
-    const avgAutoScore = autoTotals.length ? (autoTotals.reduce((a, b) => a + b, 0) / autoTotals.length).toFixed(1) : "0.0"
-    const avgByDomain = domains.map((d) => {
-      const values = evaluations.map((e) => Number((e.autoScores || e.scores || {})[d.key] || 0))
-      const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0
-      return { key: d.key, title: d.title, avg: avg.toFixed(2) }
-    })
-    const weakest = [...avgByDomain].sort((a, b) => Number(a.avg) - Number(b.avg))[0]
-    return { totalAssessments, avgAutoScore, weakest, avgByDomain }
-  }, [evaluations])
-
-  const handleResidentLogin = async () => {
-    try {
-      await signInResident()
-      localStorage.setItem("crft_portal", "resident")
-      localStorage.setItem("crft_resident_id", residentId)
-      setPortal("resident")
-    } catch (e) {
-      console.error(e)
-      alert("Resident login failed.")
-    }
+  function resetResidentForm() {
+    setResponse({
+      ...emptyResidentResponse,
+      residentId: response.residentId,
+      startedAt: new Date().toISOString(),
+    });
+    setManual(emptyManualScoring());
   }
 
-  const handleStaffLogin = async (targetPortal) => {
-    try {
-      await signInEvaluator(staffEmail, staffPassword)
-      localStorage.setItem("crft_portal", targetPortal)
-      setPortal(targetPortal)
-    } catch (e) {
-      console.error(e)
-      alert("Login failed.")
-    }
-  }
-
-  const handleLogout = async () => {
-    await logOut()
-    localStorage.removeItem("crft_portal")
-    setPortal("")
-    setResidentUnlocked(false)
-    setResidentSessionCode("")
-  }
-
-  const unlockResidentSession = () => {
-    const expected = sessionConfig?.sessionCode || ""
-    if (!sessionConfig?.isOpen) return alert("Session is closed.")
-    if (!residentSessionCode.trim()) return alert("Enter the session code.")
-    if (residentSessionCode.trim() !== expected) return alert("Wrong session code.")
-    if (!localStorage.getItem(residentStartKey)) localStorage.setItem(residentStartKey, String(Date.now()))
-    setResidentUnlocked(true)
-  }
-
-  const submitResidentAnswer = async ({ answer, leadingDiagnosis, confidence }) => {
-    if (!releasedCase) return alert("No released case.")
-    if (!residentUnlocked) return alert("Unlock the session first.")
-    if (alreadySubmitted) return alert("This resident already submitted this released case.")
-    if (!answer.trim()) return alert("Enter reasoning before submitting.")
-    if (!leadingDiagnosis.trim()) return alert("Enter a leading diagnosis.")
-
-    const startedAtMs = Number(localStorage.getItem(residentStartKey) || Date.now())
-    const nowMs = Date.now()
-    const auto = autoScoreCase(releasedCase, leadingDiagnosis, answer)
-
-    const payload = {
-      recordType: "dual_scored_submission",
-      residentId,
-      resident: residentId,
-      residentLevel: residentId,
-      caseName: releasedCase.title,
-      universalCaseKey: releasedCase.key,
-      universalCaseTitle: releasedCase.title,
-      universalCaseSetting: releasedCase.setting,
-      sessionCode: sessionConfig?.sessionCode || "",
-      sessionDay: Number(sessionConfig?.sessionDay || 1),
-      phase: sessionConfig?.phase || "no_feedback",
-      caseIndex: Number(sessionConfig?.caseIndex || 1),
-      traineeAnswer: answer.trim(),
-      leadingDiagnosis: leadingDiagnosis.trim(),
-      confidence: Number(confidence),
-      timeSeconds: Math.max(1, Math.round((nowMs - startedAtMs) / 1000)),
-      startedAt: new Date(startedAtMs),
-
-      autoScores: auto.scores,
-      autoTotal: auto.total,
-      autoRating: auto.rating,
-      autoErrorTags: auto.errorTags,
-      autoFeedback: auto.autoFeedback,
-      hitSummary: auto.hitSummary,
-
-      // backwards-compatible fields
-      scores: auto.scores,
-      total: auto.total,
-      globalRating: auto.rating,
-      errorTags: auto.errorTags,
-
-      manualScores: null,
-      manualTotal: null,
-      manualRating: null,
-      manualErrorTags: [],
-      manualFeedback: "",
-      calibration: null,
-      evaluator: "",
-      evaluatorNotes: "",
+  function handleSubmitResident() {
+    if (!session.isOpen) {
+      alert("Session is closed.");
+      return;
     }
 
-    try {
-      await createEvaluation(payload)
-      localStorage.setItem(residentSubmitKey, "1")
-      setStatusMessage("Submission auto-scored and saved.")
-      window.location.reload()
-    } catch (e) {
-      console.error(e)
-      alert("Submission failed.")
+    if (submittedKeys[submissionKey]) {
+      alert("This resident already submitted for this session/day.");
+      return;
     }
+
+    const finalResponse = {
+      ...response,
+      submittedAt: new Date().toISOString(),
+      timeSeconds: response.timeSeconds || 180,
+    };
+
+    const finalAuto = autoScoreSubmission(finalResponse, currentCase);
+    const finalManual = buildManualResult(manual);
+    const finalCalibration = buildCalibration(finalAuto, finalManual);
+    const finalFeedback = buildFeedback({
+      response: finalResponse,
+      caseObj: currentCase,
+      autoResult: finalAuto,
+      manualResult: finalManual,
+    });
+
+    const record = buildSubmissionRecord({
+      session,
+      caseObj: currentCase,
+      response: finalResponse,
+      autoResult: finalAuto,
+      manualResult: finalManual,
+      calibration: finalCalibration,
+      feedbackText: finalFeedback,
+    });
+
+    setRecords((prev) => [record, ...prev]);
+    setSubmittedKeys((prev) => ({ ...prev, [submissionKey]: true }));
+    alert("Submission saved.");
   }
 
-  const saveSessionControl = async () => {
-    try {
-      await saveSessionConfig({
-        sessionCode: sessionEditorCode.trim(),
-        isOpen: sessionEditorOpen,
-        releasedCaseKey: sessionEditorCaseKey || "",
-        activeCase: sessionEditorCaseKey || "",
-        sessionDay: Number(sessionEditorDay || 1),
-        phase: sessionEditorPhase || "no_feedback",
-        caseIndex: Number(sessionEditorCaseIndex || 1),
-      })
-      setStatusMessage("Session settings saved.")
-    } catch (e) {
-      console.error(e)
-      alert("Failed to save session settings.")
-    }
+  function deleteRecord(indexToDelete) {
+    setRecords((prev) => prev.filter((_, idx) => idx !== indexToDelete));
   }
 
-  const loadForManualScoring = (record) => {
-    setSelectedRecordId(record.id)
-    setManualScores(record.manualScores || { ...initialScores })
-    setManualNotes(record.evaluatorNotes || "")
-    setManualEvaluator(record.evaluator || user?.email || "")
-    setManualErrorTags(record.manualErrorTags || [])
-    setActiveStaffTab("manual")
-    setStatusMessage("Loaded for manual scoring.")
-  }
+  const residentProfiles = useMemo(
+    () => RESIDENT_IDS.map((id) => computeResidentProfile(records, id)),
+    [records]
+  );
 
-  const saveManualScoring = async () => {
-    if (!selectedRecord) return alert("Load a submission first.")
-    const caseDef = universalCases.find((c) => c.key === selectedRecord.universalCaseKey)
-    const manualFeedback = buildManualFeedback(caseDef, manualScores, manualErrorTags)
-    const calibration = calibrationFrom(
-      selectedRecord.autoScores || selectedRecord.scores || {},
-      manualScores,
-      selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
-      manualTotal
-    )
-    try {
-      await updateEvaluation(selectedRecord.id, {
-        manualScores: { ...manualScores },
-        manualTotal,
-        manualRating: getGlobalRating(manualTotal),
-        manualErrorTags,
-        manualFeedback,
-        evaluator: manualEvaluator || user?.email || "",
-        evaluatorNotes: manualNotes,
-        calibration,
-      })
-      setStatusMessage("Manual score and calibration saved.")
-    } catch (e) {
-      console.error(e)
-      alert("Failed to save manual scoring.")
-    }
-  }
+  const totalAssessments = records.length;
+  const avgAutoScore = average(records.map((r) => r.autoTotal));
+  const avgGap = average(records.map((r) => r.calibration?.totalDifference || 0));
+  const dangerousMissRate = average(records.map((r) => (r.dangerousMiss ? 1 : 0)));
 
-  const handleDeleteEvaluation = async (id) => {
-    const ok = window.confirm("Delete this evaluation?")
-    if (!ok) return
-    try {
-      await removeEvaluation(id)
-      setStatusMessage("Evaluation deleted.")
-    } catch (e) {
-      console.error(e)
-      alert("Delete failed.")
-    }
-  }
-
-  const exportAll = () => exportRowsAsCsv("crft_all_evaluations.csv", evaluations.map(flattenEvaluation))
-  const exportCurrentSession = () => exportRowsAsCsv(`crft_session_${currentSession || "unknown"}.csv`, evaluations.filter((e) => (e.sessionCode || "") === currentSession).map(flattenEvaluation))
-  const exportResident = (rid) => exportRowsAsCsv(`crft_${rid}.csv`, evaluations.filter((e) => (e.residentId || e.resident) === rid).map(flattenEvaluation))
-
-  if (!user || !portal) {
-    return (
-      <div style={pageWrap}>
-        <div style={container}>
-          <div style={{ background: "linear-gradient(135deg, #0c4a6e, #0f766e)", color: "white", borderRadius: 18, padding: 22, marginBottom: 18 }}>
-            <h1 style={{ margin: 0 }}>CRFT</h1>
-            <div style={{ marginTop: 6 }}>Clinical Reasoning Feedback Tool</div>
-            <div style={{ marginTop: 8, opacity: 0.9, fontSize: 13 }}>{appUrl}</div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}>
-            <div style={card}>
-              <h2 style={{ marginTop: 0 }}>Resident access</h2>
-              <div style={{ marginBottom: 10 }}>For controlled data collection only.</div>
-              <label><strong>Resident ID</strong></label>
-              <select value={residentId} onChange={(e) => setResidentId(e.target.value)} style={{ ...inputStyle, marginTop: 6 }}>
-                {["R1", "R2", "R3", "R4", "R5"].map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-              <button type="button" onClick={handleResidentLogin} style={{ ...buttonBase, background: "#0f766e", marginTop: 12, width: "100%" }}>Enter as Resident</button>
-            </div>
-
-            <div style={card}>
-              <h2 style={{ marginTop: 0 }}>Evaluator access</h2>
-              <label><strong>Email</strong></label>
-              <input value={staffEmail} onChange={(e) => setStaffEmail(e.target.value)} style={{ ...inputStyle, marginTop: 6 }} />
-              <label style={{ display: "block", marginTop: 10 }}><strong>Password</strong></label>
-              <input type="password" value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} style={{ ...inputStyle, marginTop: 6 }} />
-              <button type="button" onClick={() => handleStaffLogin("evaluator")} style={{ ...buttonBase, background: "#2563eb", marginTop: 12, width: "100%" }}>Login as Evaluator</button>
-            </div>
-
-            <div style={card}>
-              <h2 style={{ marginTop: 0 }}>Program Director access</h2>
-              <div style={{ color: "#475569", marginBottom: 12 }}>Uses the same email/password authentication path with a different portal view.</div>
-              <button type="button" onClick={() => handleStaffLogin("director")} style={{ ...buttonBase, background: "#7c3aed", width: "100%" }}>Login as Program Director</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (portal === "resident") {
-    return (
-      <ResidentPortal
-        residentId={residentId}
-        sessionConfig={sessionConfig}
-        residentSessionCode={residentSessionCode}
-        setResidentSessionCode={setResidentSessionCode}
-        residentUnlocked={residentUnlocked}
-        unlockResidentSession={unlockResidentSession}
-        releasedCase={releasedCase}
-        alreadySubmitted={alreadySubmitted}
-        submitResidentAnswer={submitResidentAnswer}
-        handleLogout={handleLogout}
-        statusMessage={statusMessage}
-      />
-    )
-  }
-
-  const isEvaluator = portal === "evaluator"
-  const isDirector = portal === "director"
+  const weakestDomainOverall = [...CRFT_DOMAINS].sort(
+    (a, b) =>
+      average(records.map((r) => r.autoDomainScores?.[a] || 0)) -
+      average(records.map((r) => r.autoDomainScores?.[b] || 0))
+  )[0];
 
   return (
-    <div style={pageWrap}>
-      <div style={container}>
-        <div style={{ background: "linear-gradient(135deg, #0c4a6e, #0f766e)", color: "white", borderRadius: 18, padding: 22, marginBottom: 18 }}>
-          <div style={{ fontSize: 30, fontWeight: 800 }}>{isEvaluator ? "Evaluator Portal" : "Program Director Portal"}</div>
-        </div>
+    <div className="min-h-screen bg-slate-50 p-6 text-slate-900">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="rounded-2xl bg-white p-6 shadow-sm">
+          <h1 className="text-2xl font-bold">CRFT Phase 1 Integrated App</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Single-file PGY1 pilot scaffold with 10 standardized cases, session control,
+            auto/manual scoring, cognitive bias tagging, reasoning error taxonomy,
+            dangerous-miss logic, calibration tracking, and CSV export.
+          </p>
+        </header>
 
-        <div style={{ ...card, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div>
-            <div style={{ fontWeight: 800 }}>{isEvaluator ? "Evaluator" : "Program Director"} · {user?.email || ""}</div>
-            <div style={{ marginTop: 6, color: "#64748b" }}>Session control, dual scoring, calibration tracking, logs, exports, and oversight.</div>
-          </div>
-          <button type="button" onClick={handleLogout} style={{ ...buttonBase, background: "#475569" }}>Logout</button>
-        </div>
-
-        {statusMessage ? <div style={{ ...card, marginBottom: 16, background: "#ecfeff" }}>{statusMessage}</div> : null}
-
-        {isEvaluator && (
-          <>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-              <button type="button" style={tabStyle(activeStaffTab === "session")} onClick={() => setActiveStaffTab("session")}>Session Control</button>
-              <button type="button" style={tabStyle(activeStaffTab === "log")} onClick={() => setActiveStaffTab("log")}>Assessment Log</button>
-              <button type="button" style={tabStyle(activeStaffTab === "manual")} onClick={() => setActiveStaffTab("manual")}>Manual Scoring</button>
-              <button type="button" style={tabStyle(activeStaffTab === "profiles")} onClick={() => setActiveStaffTab("profiles")}>Resident Profiles</button>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card title="Session Control Panel">
+            <div className="space-y-3">
+              <input
+                className="w-full rounded-xl border p-2"
+                value={session.sessionCode}
+                onChange={(e) => setSession((s) => ({ ...s, sessionCode: e.target.value }))}
+                placeholder="Session code"
+              />
+              <select
+                className="w-full rounded-xl border p-2"
+                value={session.currentCaseId}
+                onChange={(e) => setSession((s) => ({ ...s, currentCaseId: e.target.value }))}
+              >
+                {CASE_LIBRARY.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.id} - {c.title}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                className="w-full rounded-xl border p-2"
+                value={session.dayIndex}
+                onChange={(e) => setSession((s) => ({ ...s, dayIndex: Number(e.target.value) || 1 }))}
+              />
+              <select
+                className="w-full rounded-xl border p-2"
+                value={session.phase}
+                onChange={(e) => setSession((s) => ({ ...s, phase: e.target.value }))}
+              >
+                {PHASES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={session.isOpen}
+                  onChange={(e) => setSession((s) => ({ ...s, isOpen: e.target.checked }))}
+                />
+                Session open
+              </label>
             </div>
+          </Card>
 
-            {activeStaffTab === "session" && (
-              <div style={card}>
-                <h2 style={{ marginTop: 0 }}>Session Control</h2>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
-                  <div><label><strong>Session code</strong></label><input value={sessionEditorCode} onChange={(e) => setSessionEditorCode(e.target.value)} style={{ ...inputStyle, marginTop: 6 }} /></div>
-                  <div><label><strong>Released case</strong></label><select value={sessionEditorCaseKey} onChange={(e) => setSessionEditorCaseKey(e.target.value)} style={{ ...inputStyle, marginTop: 6 }}><option value="">Select case</option>{universalCases.map((c) => <option key={c.key} value={c.key}>{c.title}</option>)}</select></div>
-                  <div><label><strong>Session status</strong></label><select value={sessionEditorOpen ? "open" : "closed"} onChange={(e) => setSessionEditorOpen(e.target.value === "open")} style={{ ...inputStyle, marginTop: 6 }}><option value="open">Open</option><option value="closed">Closed</option></select></div>
-                  <div><label><strong>Session day</strong></label><input type="number" min="1" max="10" value={sessionEditorDay} onChange={(e) => setSessionEditorDay(Number(e.target.value))} style={{ ...inputStyle, marginTop: 6 }} /></div>
-                  <div><label><strong>Phase</strong></label><select value={sessionEditorPhase} onChange={(e) => setSessionEditorPhase(e.target.value)} style={{ ...inputStyle, marginTop: 6 }}><option value="no_feedback">no_feedback</option><option value="feedback">feedback</option></select></div>
-                  <div><label><strong>Case index</strong></label><input type="number" min="1" max="10" value={sessionEditorCaseIndex} onChange={(e) => setSessionEditorCaseIndex(Number(e.target.value))} style={{ ...inputStyle, marginTop: 6 }} /></div>
+          <Card title="Current Case" right={<span className="rounded-full bg-slate-100 px-3 py-1 text-xs">{currentCase.difficulty}</span>}>
+            <p className="text-sm font-medium">
+              {currentCase.id} — {currentCase.title}
+            </p>
+            <p className="mt-3 text-sm">{currentCase.vignette}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {currentCase.traps.map((trap) => (
+                <span key={trap} className="rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-800">
+                  Trap: {trap}
+                </span>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="Leadership Dashboard">
+            <div className="space-y-2 text-sm">
+              <div>Total Assessments: <span className="font-semibold">{totalAssessments}</span></div>
+              <div>Average Auto Score: <span className="font-semibold">{avgAutoScore.toFixed(1)}/24</span></div>
+              <div>Average Calibration Gap: <span className="font-semibold">{avgGap.toFixed(1)}</span></div>
+              <div>Dangerous Miss Rate: <span className="font-semibold">{(dangerousMissRate * 100).toFixed(0)}%</span></div>
+              <div>Weakest Domain: <span className="font-semibold">{DOMAIN_LABELS[weakestDomainOverall] || "—"}</span></div>
+            </div>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card
+            title="Resident Input"
+            right={<span className="text-xs text-slate-500">One-time submission enforced per resident/day</span>}
+          >
+            <div className="space-y-3">
+              <select
+                className="w-full rounded-xl border p-2"
+                value={response.role}
+                onChange={(e) => setResponse((r) => ({ ...r, role: e.target.value }))}
+              >
+                {ROLES.map((role) => (
+                  <option key={role}>{role}</option>
+                ))}
+              </select>
+
+              <select
+                className="w-full rounded-xl border p-2"
+                value={response.residentId}
+                onChange={(e) => setResponse((r) => ({ ...r, residentId: e.target.value }))}
+              >
+                {RESIDENT_IDS.map((id) => (
+                  <option key={id}>{id}</option>
+                ))}
+              </select>
+
+              <input
+                className="w-full rounded-xl border p-2"
+                value={response.leadingDiagnosis}
+                onChange={(e) => setResponse((r) => ({ ...r, leadingDiagnosis: e.target.value }))}
+                placeholder="Leading diagnosis"
+              />
+
+              <textarea
+                className="min-h-[190px] w-full rounded-xl border p-3"
+                value={response.freeText}
+                onChange={(e) => setResponse((r) => ({ ...r, freeText: e.target.value }))}
+                placeholder="Enter resident reasoning here"
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-sm">Confidence (0–100)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="w-full rounded-xl border p-2"
+                    value={response.confidence}
+                    onChange={(e) =>
+                      setResponse((r) => ({
+                        ...r,
+                        confidence: clamp(Number(e.target.value) || 0, 0, 100),
+                      }))
+                    }
+                  />
                 </div>
-                <div style={{ marginTop: 14, color: "#475569" }}>Live: code <strong>{sessionConfig?.sessionCode || "—"}</strong> · case <strong>{releasedCase?.title || "—"}</strong> · {sessionConfig?.isOpen ? "Open" : "Closed"} · day <strong>{sessionConfig?.sessionDay ?? "—"}</strong> · phase <strong>{sessionConfig?.phase || "—"}</strong> · case index <strong>{sessionConfig?.caseIndex ?? "—"}</strong></div>
-                <button type="button" onClick={saveSessionControl} style={{ ...buttonBase, background: "#0f766e", marginTop: 16 }}>Save Session Settings</button>
-              </div>
-            )}
-
-            {activeStaffTab === "log" && (
-              <div style={card}>
-                <h2 style={{ marginTop: 0 }}>Assessment Log</h2>
-                <div style={{ display: "grid", gap: 12 }}>
-                  {submittedRows.map((e) => (
-                    <div key={e.id} style={{ border: "1px solid #dbe4ee", borderRadius: 14, padding: 14 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "start" }}>
-                        <div>
-                          <div style={{ fontSize: 18, fontWeight: 800 }}>{e.residentId || e.resident} · {e.caseName}</div>
-                          <div style={{ marginTop: 6, color: "#64748b" }}>
-                            {formatFirebaseDate(e.createdAt)} · session {e.sessionCode || "—"} · day {e.sessionDay ?? "—"} · {e.phase || "—"} · case {e.caseIndex ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 8 }}>
-                            <strong>Auto:</strong> {e.autoTotal ?? e.total ?? 0}/24 · {e.autoRating || e.globalRating || "—"}
-                            {e.manualTotal != null ? ` | Manual: ${e.manualTotal}/24 · ${e.manualRating || "—"}` : ""}
-                          </div>
-                          <div style={{ marginTop: 8 }}>
-                            <strong>Calibration:</strong> {e.calibration ? `${e.calibration.agreementFlag} agreement, total diff ${e.calibration.totalDifference}` : "not manually scored yet"}
-                          </div>
-                          <div style={{ marginTop: 10 }}><strong>Auto feedback:</strong> {e.autoFeedback || "—"}</div>
-                        </div>
-                        <div style={{ background: "#0f766e", color: "white", borderRadius: 999, padding: "8px 12px", fontWeight: 800 }}>
-                          {e.autoTotal ?? e.total ?? 0}/24
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
-                        <button type="button" onClick={() => loadForManualScoring(e)} style={{ ...buttonBase, background: "#2563eb" }}>Manual Score</button>
-                        <button type="button" onClick={() => handleDeleteEvaluation(e.id)} style={{ ...buttonBase, background: "#dc2626" }}>Delete</button>
-                      </div>
-                    </div>
-                  ))}
+                <div>
+                  <label className="mb-1 block text-sm">Time (seconds)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="w-full rounded-xl border p-2"
+                    value={response.timeSeconds}
+                    onChange={(e) =>
+                      setResponse((r) => ({ ...r, timeSeconds: Number(e.target.value) || 0 }))
+                    }
+                  />
                 </div>
               </div>
-            )}
 
-            {activeStaffTab === "manual" && (
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(420px,1.1fr) minmax(420px,0.9fr)", gap: 16 }}>
-                <div style={card}>
-                  <h2 style={{ marginTop: 0 }}>Manual Scoring Workspace</h2>
-                  {!selectedRecord ? (
-                    <div style={{ color: "#64748b" }}>Load a submission from the Assessment Log first.</div>
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={handleSubmitResident}>Submit evaluation</Button>
+                <Button onClick={resetResidentForm} variant="secondary">
+                  Reset form
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Manual Scoring Panel">
+            <div className="space-y-3">
+              {CRFT_DOMAINS.map((domain) => (
+                <div key={domain} className="grid grid-cols-[1fr,150px] items-center gap-3">
+                  <div>
+                    <div className="text-sm font-medium">{DOMAIN_LABELS[domain]}</div>
+                    <div className="text-xs text-slate-500">0–4 anchored rubric</div>
+                  </div>
+                  <select
+                    className="rounded-xl border p-2"
+                    value={manual.domainScores[domain]}
+                    onChange={(e) =>
+                      setManual((m) => ({
+                        ...m,
+                        domainScores: { ...m.domainScores, [domain]: Number(e.target.value) },
+                      }))
+                    }
+                  >
+                    {[0, 1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>
+                        {n} — {DOMAIN_ANCHORS_0_4[n]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Manual Bias Tags</label>
+                  <select
+                    multiple
+                    className="min-h-[140px] w-full rounded-xl border p-2"
+                    value={manual.selectedBiasTags}
+                    onChange={(e) =>
+                      setManual((m) => ({
+                        ...m,
+                        selectedBiasTags: Array.from(e.target.selectedOptions).map((o) => o.value),
+                      }))
+                    }
+                  >
+                    {Object.values(COGNITIVE_BIASES).map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Manual Error Tags</label>
+                  <select
+                    multiple
+                    className="min-h-[140px] w-full rounded-xl border p-2"
+                    value={manual.selectedErrorTags}
+                    onChange={(e) =>
+                      setManual((m) => ({
+                        ...m,
+                        selectedErrorTags: Array.from(e.target.selectedOptions).map((o) => o.value),
+                      }))
+                    }
+                  >
+                    {Object.values(REASONING_ERRORS).map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <textarea
+                className="min-h-[120px] w-full rounded-xl border p-3"
+                value={manual.comments}
+                onChange={(e) => setManual((m) => ({ ...m, comments: e.target.value }))}
+                placeholder="Manual evaluator comments"
+              />
+            </div>
+          </Card>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-3">
+          <Card title="Auto Scoring">
+            <div className="space-y-2 text-sm">
+              {CRFT_DOMAINS.map((d) => (
+                <div key={d} className="flex items-center justify-between">
+                  <span>{DOMAIN_LABELS[d]}</span>
+                  <span className="font-semibold">{autoResult.domainScores[d]}/4</span>
+                </div>
+              ))}
+              <div className="mt-3 border-t pt-3 font-semibold">Auto Total: {autoResult.total}/24</div>
+              <div>Global Rating: {autoResult.globalRating}</div>
+              <div>Dangerous Miss: {autoResult.dangerousMiss ? "Yes" : "No"}</div>
+            </div>
+          </Card>
+
+          <Card title="Taxonomy Output">
+            <div className="space-y-3 text-sm">
+              <div>
+                <div className="font-medium">Auto Bias Tags</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {autoResult.biasTags.length ? (
+                    autoResult.biasTags.map((t) => (
+                      <span key={t} className="rounded-full bg-purple-100 px-3 py-1 text-xs text-purple-800">
+                        {COGNITIVE_BIASES[t]?.label}
+                      </span>
+                    ))
                   ) : (
-                    <>
-                      <div style={{ marginBottom: 8 }}><strong>Resident:</strong> {selectedRecord.residentId || selectedRecord.resident}</div>
-                      <div style={{ marginBottom: 8 }}><strong>Case:</strong> {selectedRecord.caseName}</div>
-                      <div style={{ marginBottom: 8 }}><strong>Leading diagnosis:</strong> {selectedRecord.leadingDiagnosis || "—"}</div>
-                      <div style={{ marginBottom: 8 }}><strong>Confidence:</strong> {selectedRecord.confidence ?? "—"}% · <strong>Time:</strong> {selectedRecord.timeSeconds ?? "—"} sec</div>
-                      <div style={{ marginTop: 12, fontWeight: 800 }}>Resident answer</div>
-                      <div style={{ marginTop: 8, background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 12, whiteSpace: "pre-wrap" }}>{selectedRecord.traineeAnswer || "—"}</div>
-
-                      <div style={{ marginTop: 14, padding: 12, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-                        <div><strong>Auto total:</strong> {selectedRecord.autoTotal ?? selectedRecord.total ?? 0}/24</div>
-                        <div style={{ marginTop: 6 }}><strong>Auto feedback:</strong> {selectedRecord.autoFeedback || "—"}</div>
-                      </div>
-
-                      <div style={{ marginTop: 14 }}>
-                        <label><strong>Evaluator</strong></label>
-                        <input value={manualEvaluator} onChange={(e) => setManualEvaluator(e.target.value)} style={{ ...inputStyle, marginTop: 6 }} />
-                      </div>
-
-                      <div style={{ marginTop: 14 }}>
-                        <label><strong>Evaluator notes</strong></label>
-                        <textarea value={manualNotes} onChange={(e) => setManualNotes(e.target.value)} style={{ ...textareaStyle, marginTop: 6, minHeight: 110 }} />
-                      </div>
-                    </>
+                    <span className="text-slate-500">None</span>
                   )}
                 </div>
+              </div>
 
-                <div style={card}>
-                  <h2 style={{ marginTop: 0 }}>Anchored Manual Rubric</h2>
-                  <div style={{ display: "grid", gap: 14 }}>
-                    {domains.map((d) => (
-                      <div key={d.key} style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                          <strong>{d.title}</strong>
-                          <span>{manualScores[d.key]}/4</span>
-                        </div>
-                        <select value={manualScores[d.key]} onChange={(e) => setManualScores((prev) => ({ ...prev, [d.key]: Number(e.target.value) }))} style={inputStyle}>
-                          {[0,1,2,3,4].map((n) => <option key={n} value={n}>{n}</option>)}
-                        </select>
-                        <div style={{ marginTop: 10, fontSize: 13, color: "#475569", display: "grid", gap: 4 }}>
-                          {[0,1,2,3,4].map((n) => (
-                            <div key={n}><strong>{n}:</strong> {domainRubric[d.key][n]}</div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontWeight: 800, marginBottom: 8 }}>Manual error tags</div>
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {manualErrorTagOptions.map((tag) => (
-                        <label key={tag} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <input type="checkbox" checked={manualErrorTags.includes(tag)} onChange={() => setManualErrorTags((prev) => prev.includes(tag) ? prev.filter((x) => x !== tag) : [...prev, tag])} />
-                          <span>{tag}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    <div style={{ padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Automatic Assessment</div>
-                      <div><strong>Total:</strong> {selectedRecord?.autoTotal ?? selectedRecord?.total ?? 0}/24</div>
-                      <div style={{ marginTop: 6 }}><strong>Rating:</strong> {selectedRecord?.autoRating || selectedRecord?.globalRating || "—"}</div>
-                      <div style={{ marginTop: 6 }}><strong>Error tags:</strong> {((selectedRecord?.autoErrorTags || selectedRecord?.errorTags || []).join(", ")) || "none"}</div>
-                      <div style={{ marginTop: 10, fontSize: 13, color: "#475569" }}>
-                        {domains.map((d) => (
-                          <div key={`auto-${d.key}`}>
-                            {d.title}: {(selectedRecord?.autoScores || selectedRecord?.scores || {})[d.key] ?? 0}/4
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ marginTop: 10 }}>
-                        <strong>Feedback:</strong> {selectedRecord?.autoFeedback || "—"}
-                      </div>
-                    </div>
-
-                    <div style={{ padding: 14, borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-                      <div style={{ fontWeight: 800, marginBottom: 8 }}>Manual Assessment</div>
-                      <div><strong>Total:</strong> {manualTotal}/24</div>
-                      <div style={{ marginTop: 6 }}><strong>Rating:</strong> {getGlobalRating(manualTotal)}</div>
-                      <div style={{ marginTop: 6 }}><strong>Error tags:</strong> {(manualErrorTags || []).join(", ") || "none"}</div>
-                      <div style={{ marginTop: 10, fontSize: 13, color: "#475569" }}>
-                        {domains.map((d) => (
-                          <div key={`manual-${d.key}`}>
-                            {d.title}: {manualScores[d.key] ?? 0}/4
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ marginTop: 10 }}>
-                        <strong>Feedback preview:</strong> {buildManualFeedback(
-                          universalCases.find((c) => c.key === selectedRecord?.universalCaseKey),
-                          manualScores,
-                          manualErrorTags
-                        ) || "—"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 12, padding: 14, borderRadius: 12, background: "#eef6ff", border: "1px solid #bfdbfe" }}>
-                    <div style={{ fontWeight: 800, marginBottom: 8 }}>Calibration Summary</div>
-                    <div>
-                      <strong>Total difference:</strong> {selectedRecord
-                        ? calibrationFrom(
-                            selectedRecord.autoScores || selectedRecord.scores || {},
-                            manualScores,
-                            selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
-                            manualTotal
-                          ).totalDifference
-                        : 0}
-                    </div>
-                    <div style={{ marginTop: 6 }}>
-                      <strong>Agreement:</strong> {selectedRecord
-                        ? calibrationFrom(
-                            selectedRecord.autoScores || selectedRecord.scores || {},
-                            manualScores,
-                            selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
-                            manualTotal
-                          ).agreementFlag
-                        : "—"}
-                    </div>
-                    <div style={{ marginTop: 8, fontSize: 13, color: "#334155" }}>
-                      {selectedRecord &&
-                        domains.map((d) => {
-                          const diff = calibrationFrom(
-                            selectedRecord.autoScores || selectedRecord.scores || {},
-                            manualScores,
-                            selectedRecord.autoTotal ?? selectedRecord.total ?? 0,
-                            manualTotal
-                          ).domainDifferences[d.key]
-                          return (
-                            <div key={`diff-${d.key}`}>
-                              {d.title}: difference {diff}
-                            </div>
-                          )
-                        })}
-                    </div>
-                    {selectedRecord?.manualFeedback ? (
-                      <div style={{ marginTop: 10 }}>
-                        <strong>Saved manual feedback:</strong> {selectedRecord.manualFeedback}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <button type="button" onClick={saveManualScoring} style={{ ...buttonBase, background: "#0f766e", marginTop: 16, width: "100%" }}>
-                    Save Manual Score + Calibration
-                  </button>
+              <div>
+                <div className="font-medium">Auto Error Tags</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {autoResult.errorTags.length ? (
+                    autoResult.errorTags.map((t) => (
+                      <span key={t} className="rounded-full bg-rose-100 px-3 py-1 text-xs text-rose-800">
+                        {REASONING_ERRORS[t]?.label}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-slate-500">None</span>
+                  )}
                 </div>
               </div>
-            )}
-
-            {activeStaffTab === "profiles" && (
-              <div style={card}>
-                <h2 style={{ marginTop: 0 }}>Resident Profiles</h2>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12 }}>
-                  {["R1", "R2", "R3", "R4", "R5"].map((rid) => {
-                    const rows = evaluations.filter((e) => (e.residentId || e.resident) === rid)
-                    const avgAuto = rows.length ? (rows.reduce((sum, row) => sum + Number(row.autoTotal ?? row.total ?? 0), 0) / rows.length).toFixed(1) : "0.0"
-                    const avgManual = rows.filter((r) => r.manualTotal != null).length
-                      ? (rows.filter((r) => r.manualTotal != null).reduce((sum, row) => sum + Number(row.manualTotal || 0), 0) / rows.filter((r) => r.manualTotal != null).length).toFixed(1)
-                      : "—"
-                    return (
-                      <div key={rid} style={{ border: "1px solid #dbe4ee", borderRadius: 14, padding: 14 }}>
-                        <div style={{ fontWeight: 800 }}>{rid}</div>
-                        <div style={{ marginTop: 6 }}>Assessments: {rows.length}</div>
-                        <div>Avg auto: {avgAuto}/24</div>
-                        <div>Avg manual: {avgManual === "—" ? "—" : `${avgManual}/24`}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {isDirector && (
-          <>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
-              <button type="button" style={tabStyle(activeDirectorTab === "leadership")} onClick={() => setActiveDirectorTab("leadership")}>Leadership Dashboard</button>
-              <button type="button" style={tabStyle(activeDirectorTab === "intelligence")} onClick={() => setActiveDirectorTab("intelligence")}>Program Intelligence</button>
-              <button type="button" style={tabStyle(activeDirectorTab === "reports")} onClick={() => setActiveDirectorTab("reports")}>Reports / Exports</button>
             </div>
+          </Card>
 
-            {activeDirectorTab === "leadership" && (
-              <div style={{ display: "grid", gap: 16 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 16 }}>
-                  <MetricCard label="Total assessments" value={leadershipMetrics.totalAssessments} />
-                  <MetricCard label="Average auto CRFT" value={`${leadershipMetrics.avgAutoScore}/24`} />
-                  <MetricCard label="Weakest auto domain" value={leadershipMetrics.weakest?.title || "—"} subtext={leadershipMetrics.weakest ? `Average ${leadershipMetrics.weakest.avg}/4` : ""} />
-                  <MetricCard label="Calibration cases" value={calibrationMetrics.n} subtext={`Avg total diff ${calibrationMetrics.avgTotalDifference}`} />
+          <Card title="Calibration Summary">
+            <div className="space-y-2 text-sm">
+              <div>Manual Total: {manualResult.total}/24</div>
+              <div>Manual Rating: {manualResult.globalRating}</div>
+              <div>Total Difference: {calibration.totalDifference}</div>
+              <div>Agreement: {calibration.agreementClass}</div>
+              <div>Exact Match Domains: {calibration.exactMatchDomains}/6</div>
+            </div>
+          </Card>
+        </div>
+
+        <Card title="Generated Feedback">
+          <p className="text-sm leading-7 text-slate-700">{feedbackText}</p>
+        </Card>
+
+        <Card
+          title="Assessment Log"
+          right={
+            <Button
+              onClick={() => downloadCsv(`crft-export-${session.sessionCode}.csv`, toCsv(records))}
+              variant="secondary"
+            >
+              Export CSV
+            </Button>
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="p-2">Resident</th>
+                  <th className="p-2">Day</th>
+                  <th className="p-2">Case</th>
+                  <th className="p-2">Auto</th>
+                  <th className="p-2">Manual</th>
+                  <th className="p-2">Gap</th>
+                  <th className="p-2">Danger</th>
+                  <th className="p-2">Delete</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map((r, idx) => (
+                  <tr key={`${r.residentId}-${r.caseId}-${idx}`} className="border-b">
+                    <td className="p-2">{r.residentId}</td>
+                    <td className="p-2">{r.sessionDay}</td>
+                    <td className="p-2">{r.caseId}</td>
+                    <td className="p-2">{r.autoTotal}</td>
+                    <td className="p-2">{r.manualTotal ?? "—"}</td>
+                    <td className="p-2">{r.calibration?.totalDifference ?? "—"}</td>
+                    <td className="p-2">{r.dangerousMiss ? "Yes" : "No"}</td>
+                    <td className="p-2">
+                      <Button variant="ghost" onClick={() => deleteRecord(idx)} className="px-2 py-1">
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {!records.length && (
+                  <tr>
+                    <td colSpan={8} className="p-4 text-center text-slate-500">
+                      No submissions yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card title="Resident Performance Profiles">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            {residentProfiles.map((p) => (
+              <div key={p.residentId} className="rounded-2xl border p-4 text-sm">
+                <div className="font-semibold">{p.residentId}</div>
+                <div className="mt-2">Assessments: {p.assessments}</div>
+                <div>Avg Auto: {p.avgAutoTotal.toFixed(1)}</div>
+                <div>
+                  Avg Manual: {Number.isFinite(p.avgManualTotal) ? p.avgManualTotal.toFixed(1) : "—"}
                 </div>
+                <div>Avg Confidence: {p.avgConfidence.toFixed(0)}%</div>
+                <div>Avg Time: {p.avgTimeSeconds.toFixed(0)}s</div>
+                <div>Danger Rate: {(p.dangerousMissRate * 100).toFixed(0)}%</div>
+                <div>Weakest: {DOMAIN_LABELS[p.weakestDomain] || "—"}</div>
               </div>
-            )}
-
-            {activeDirectorTab === "intelligence" && (
-              <div style={{ display: "grid", gap: 16 }}>
-                <div style={card}>
-                  <h2 style={{ marginTop: 0 }}>Auto-score Domain Means</h2>
-                  <div style={{ display: "grid", gap: 12 }}>
-                    {leadershipMetrics.avgByDomain.map((d) => {
-                      const val = Number(d.avg)
-                      const color = val < 2 ? "#dc2626" : val < 3 ? "#d97706" : "#16a34a"
-                      return (
-                        <div key={d.key} style={{ display: "grid", gridTemplateColumns: "220px 1fr 80px", gap: 10, alignItems: "center" }}>
-                          <div><strong>{d.title}</strong></div>
-                          <div style={{ width: "100%", height: 14, background: "#e5e7eb", borderRadius: 999 }}>
-                            <div style={{ width: `${Math.min((val / 4) * 100, 100)}%`, height: "100%", borderRadius: 999, background: color }} />
-                          </div>
-                          <div>{d.avg}/4</div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div style={card}>
-                  <h2 style={{ marginTop: 0 }}>Calibration Summary</h2>
-                  <div style={{ marginBottom: 12 }}>High-agreement cases: <strong>{calibrationMetrics.highAgreement}</strong> / {calibrationMetrics.n}</div>
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {domains.map((d) => (
-                      <div key={d.key} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #e2e8f0", paddingBottom: 8 }}>
-                        <strong>{d.title}</strong>
-                        <span>Avg domain diff: {calibrationMetrics.avgDomainDiffs[d.key] || "0.00"}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeDirectorTab === "reports" && (
-              <div style={card}>
-                <h2 style={{ marginTop: 0 }}>Reports / Exports</h2>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  <button type="button" onClick={exportAll} style={{ ...buttonBase, background: "#0f766e" }}>Export All CSV</button>
-                  <button type="button" onClick={exportCurrentSession} style={{ ...buttonBase, background: "#2563eb" }}>Export Current Session CSV</button>
-                  {["R1", "R2", "R3", "R4", "R5"].map((rid) => <button key={rid} type="button" onClick={() => exportResident(rid)} style={{ ...buttonBase, background: "#7c3aed" }}>Export {rid}</button>)}
-                </div>
-              </div>
-            )}
-          </>
-        )}
+            ))}
+          </div>
+        </Card>
       </div>
     </div>
-  )
+  );
 }
