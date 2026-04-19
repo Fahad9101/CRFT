@@ -1,29 +1,23 @@
-// firebase.js (FINAL LOCKED VERSION – COMPATIBLE WITH YOUR CURRENT APP)
-
-import { initializeApp, getApps } from "firebase/app"
+import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
   signInAnonymously,
-  signInWithEmailAndPassword,
-  signOut,
   onAuthStateChanged,
-} from "firebase/auth"
-
+  signOut,
+} from "firebase/auth";
 import {
   getFirestore,
   collection,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  onSnapshot,
+  getDocs,
   query,
   orderBy,
+  serverTimestamp,
+  deleteDoc,
+  doc,
+  onSnapshot,
   setDoc,
-} from "firebase/firestore"
-
-// ============================
-// FIREBASE CONFIG (YOUR REAL CONFIG)
-// ============================
+  getDoc,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBz00_ifpMM2tbRBILZVU-cEvfiBqTCRMI",
@@ -33,104 +27,114 @@ const firebaseConfig = {
   messagingSenderId: "337127729938",
   appId: "1:337127729938:web:4e44f6a65050c3d5ace1cb",
   measurementId: "G-G1NBRQ5G9",
+};
+
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+
+export async function ensureAnonymousAuth() {
+  if (auth.currentUser) return auth.currentUser;
+  const cred = await signInAnonymously(auth);
+  return cred.user;
 }
 
-// Prevent duplicate initialization
-const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig)
-
-export const auth = getAuth(app)
-export const db = getFirestore(app)
-
-// ============================
-// AUTH
-// ============================
-
-export const signInResident = async () => {
-  return await signInAnonymously(auth)
+export function subscribeToAuth(callback) {
+  return onAuthStateChanged(auth, callback);
 }
 
-export const signInEvaluator = async (email, password) => {
-  return await signInWithEmailAndPassword(auth, email, password)
+export async function logoutFirebase() {
+  await signOut(auth);
 }
 
-export const logOut = async () => {
-  return await signOut(auth)
-}
+export const COLLECTIONS = {
+  sessionConfig: "crft_session_config",
+  submissions: "crft_submissions",
+};
 
-export const watchAuth = (callback) => {
-  return onAuthStateChanged(auth, callback)
-}
-
-// ============================
-// EVALUATIONS (CORE DATASET)
-// 🔒 LOCKED + NO DUPLICATES
-// ============================
-
-const evaluationsCollection = "crft_submissions"
-
-// 🔴 KEY CHANGE: deterministic ID (prevents duplicates + matches rules)
-export const createEvaluation = async (data) => {
-  const id = `${data.sessionCode}_${data.sessionDay}_${data.residentId}`
-
-  await setDoc(doc(db, evaluationsCollection, id), {
-    ...data,
-    createdAt: serverTimestamp(),
-  })
-
-  return { id }
-}
-
-// ============================
-// REALTIME SUBSCRIPTIONS
-// ============================
-
-export const subscribeEvaluations = (callback) => {
-  const q = query(
-    collection(db, evaluationsCollection),
-    orderBy("createdAt", "desc")
-  )
-
-  return onSnapshot(q, (snapshot) => {
-    const data = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }))
-    callback(data)
-  })
-}
-
-// ============================
-// DELETE (WILL BE BLOCKED BY RULES)
-// ============================
-
-export const removeEvaluation = async (id) => {
-  const ref = doc(db, evaluationsCollection, id)
-  return await deleteDoc(ref)
-}
-
-// ============================
-// SESSION CONFIG (CONTROL PANEL)
-// ============================
-
-const sessionRef = doc(db, "crft_session_config", "active")
-
-export const subscribeSessionConfig = (callback) => {
-  return onSnapshot(sessionRef, (snap) => {
-    if (snap.exists()) {
-      callback(snap.data())
-    } else {
-      callback(null)
-    }
-  })
-}
-
-export const saveSessionConfig = async (data) => {
-  return await setDoc(
-    sessionRef,
+export async function saveSessionConfig(session) {
+  await setDoc(
+    doc(db, COLLECTIONS.sessionConfig, "active"),
     {
-      ...data,
+      ...session,
       updatedAt: serverTimestamp(),
     },
     { merge: true }
-  )
+  );
+}
+
+export async function loadSessionConfig() {
+  const ref = doc(db, COLLECTIONS.sessionConfig, "active");
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() };
+}
+
+export function subscribeToSessionConfig(callback) {
+  const ref = doc(db, COLLECTIONS.sessionConfig, "active");
+
+  return onSnapshot(ref, (snap) => {
+    if (!snap.exists()) {
+      callback(null);
+      return;
+    }
+    callback({ id: snap.id, ...snap.data() });
+  });
+}
+
+export async function createSubmission(record) {
+  const id = `${record.sessionCode}_${record.sessionDay}_${record.residentId}`;
+
+  await setDoc(doc(db, COLLECTIONS.submissions, id), {
+    ...record,
+    createdAt: serverTimestamp(),
+  });
+
+  return { id };
+}
+
+export function subscribeToSubmissions(callback) {
+  const q = query(
+    collection(db, COLLECTIONS.submissions),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const rows = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+    callback(rows);
+  });
+}
+
+export async function listSubmissions() {
+  const q = query(
+    collection(db, COLLECTIONS.submissions),
+    orderBy("createdAt", "desc")
+  );
+
+  const snap = await getDocs(q);
+
+  return snap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+  }));
+}
+
+export async function deleteSubmissionById(id) {
+  await deleteDoc(doc(db, COLLECTIONS.submissions, id));
+}
+
+export async function getExistingSubmissionKeyMap() {
+  const rows = await listSubmissions();
+  const keyMap = {};
+
+  for (const row of rows) {
+    const key = `${row.sessionCode}-${row.sessionDay}-${row.residentId}`;
+    keyMap[key] = row.id;
+  }
+
+  return keyMap;
 }
