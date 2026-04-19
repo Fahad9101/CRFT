@@ -34,6 +34,10 @@ const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
+// ============================
+// AUTH
+// ============================
+
 export async function ensureAnonymousAuth() {
   if (auth.currentUser) return auth.currentUser;
   const cred = await signInAnonymously(auth);
@@ -48,10 +52,19 @@ export async function logoutFirebase() {
   await signOut(auth);
 }
 
+// ============================
+// COLLECTIONS
+// ============================
+
 export const COLLECTIONS = {
   sessionConfig: "crft_session_config",
   submissions: "crft_submissions",
+  activations: "crft_activations",
 };
+
+// ============================
+// SESSION CONFIG
+// ============================
 
 export async function saveSessionConfig(session) {
   await setDoc(
@@ -62,13 +75,6 @@ export async function saveSessionConfig(session) {
     },
     { merge: true }
   );
-}
-
-export async function loadSessionConfig() {
-  const ref = doc(db, COLLECTIONS.sessionConfig, "active");
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-  return { id: snap.id, ...snap.data() };
 }
 
 export function subscribeToSessionConfig(callback) {
@@ -82,6 +88,10 @@ export function subscribeToSessionConfig(callback) {
     callback({ id: snap.id, ...snap.data() });
   });
 }
+
+// ============================
+// SUBMISSIONS
+// ============================
 
 export async function createSubmission(record) {
   const id = `${record.sessionCode}_${record.sessionDay}_${record.residentId}`;
@@ -109,32 +119,101 @@ export function subscribeToSubmissions(callback) {
   });
 }
 
-export async function listSubmissions() {
-  const q = query(
-    collection(db, COLLECTIONS.submissions),
-    orderBy("createdAt", "desc")
-  );
-
-  const snap = await getDocs(q);
-
-  return snap.docs.map((d) => ({
-    id: d.id,
-    ...d.data(),
-  }));
-}
-
 export async function deleteSubmissionById(id) {
   await deleteDoc(doc(db, COLLECTIONS.submissions, id));
 }
 
-export async function getExistingSubmissionKeyMap() {
-  const rows = await listSubmissions();
-  const keyMap = {};
+// ============================
+// ACTIVATION SYSTEM
+// ============================
 
-  for (const row of rows) {
-    const key = `${row.sessionCode}-${row.sessionDay}-${row.residentId}`;
-    keyMap[key] = row.id;
+export function generateActivationCode(length = 6) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)];
   }
+  return out;
+}
 
-  return keyMap;
+export async function createActivation(payload) {
+  const id = `${payload.sessionCode}_${payload.sessionDay}_${payload.caseId}_${payload.residentId}`;
+
+  await setDoc(doc(db, COLLECTIONS.activations, id), {
+    ...payload,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  return { id };
+}
+
+export function subscribeToActivations(callback) {
+  const q = query(
+    collection(db, COLLECTIONS.activations),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const rows = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+    callback(rows);
+  });
+}
+
+// ============================
+// VALIDATION
+// ============================
+
+export async function validateActivation({
+  residentId,
+  activationCode,
+  sessionDay,
+  caseId,
+}) {
+  const snap = await getDocs(collection(db, COLLECTIONS.activations));
+
+  const rows = snap.docs.map((d) => ({
+    id: d.id,
+    ...d.data(),
+  }));
+
+  const found = rows.find(
+    (r) =>
+      r.residentId === residentId &&
+      String(r.activationCode || "").toUpperCase() ===
+        String(activationCode || "").toUpperCase() &&
+      Number(r.sessionDay) === Number(sessionDay) &&
+      r.caseId === caseId
+  );
+
+  if (!found) return { ok: false, message: "No matching activation found." };
+  if (!found.isActive) return { ok: false, message: "Activation is inactive." };
+  if (found.used) return { ok: false, message: "Activation already used." };
+
+  return { ok: true, activation: found };
+}
+
+// ============================
+// MARK USED
+// ============================
+
+export async function markActivationUsed(id) {
+  const ref = doc(db, COLLECTIONS.activations, id);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) return;
+
+  await setDoc(
+    ref,
+    {
+      ...snap.data(),
+      used: true,
+      isActive: false,
+      updatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
 }
