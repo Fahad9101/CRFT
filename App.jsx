@@ -313,6 +313,32 @@ function buildCalibration(autoResult, manualSummary) {
   return { totalDifference, domainDifferences, exactMatchDomains, agreementClass };
 }
 
+function buildManualComment(manualSummary, selectedBiasTags = [], selectedErrorTags = []) {
+  const strongDomains = CRFT_DOMAINS.filter((d) => (manualSummary?.domainScores?.[d] || 0) >= 3).map((d) => DOMAIN_LABELS[d]);
+  const weakDomains = [...CRFT_DOMAINS]
+    .sort((a, b) => (manualSummary?.domainScores?.[a] || 0) - (manualSummary?.domainScores?.[b] || 0))
+    .slice(0, 2)
+    .map((d) => DOMAIN_LABELS[d]);
+
+  const biasText = selectedBiasTags.length
+    ? selectedBiasTags.map((t) => COGNITIVE_BIASES[t] || t).join(", ")
+    : "no dominant cognitive bias was clearly identified";
+
+  const errorText = selectedErrorTags.length
+    ? selectedErrorTags.map((t) => REASONING_ERRORS[t] || t).join(", ")
+    : "no major discrete reasoning error tags were selected";
+
+  const strengthSentence = strongDomains.length
+    ? `The resident showed relative strength in ${strongDomains.join(", ")}.`
+    : "The resident did not yet demonstrate a consistent strength pattern across the CRFT domains.";
+
+  const weaknessSentence = weakDomains.length
+    ? `The main areas needing improvement are ${weakDomains.join(" and ")}.`
+    : "A clear weakest-domain pattern was not identified.";
+
+  return `${strengthSentence} ${weaknessSentence} The evaluator identified ${biasText}, with the main observable reasoning problems being ${errorText}. Overall manual performance was rated as ${manualSummary.globalRating} with a total score of ${manualSummary.total}/24. The resident should focus on making reasoning more explicit, prioritizing the differential more clearly, and updating the assessment more deliberately as new information emerges.`;
+}
+
 function Button({ children, className = "", ...props }) {
   return (
     <button
@@ -641,6 +667,17 @@ function EvaluatorView({
 
   function setManualState(recordId, next) {
     setManualMap((prev) => ({ ...prev, [recordId]: next }));
+  }
+
+  function toggleManualTag(recordId, field, tag) {
+    const manual = getManualState({ id: recordId, manualDomainScores: {}, manualBiasTags: [], manualErrorTags: [], manualComments: "" });
+    const current = manual[field] || [];
+    const exists = current.includes(tag);
+    const next = exists ? current.filter((x) => x !== tag) : [...current, tag];
+    setManualState(recordId, {
+      ...manual,
+      [field]: next,
+    });
   }
 
   function handleSubmitManualEvaluation(recordId) {
