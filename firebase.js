@@ -1,3 +1,5 @@
+// firebase.js (FINAL ROLE-STRUCTURED VERSION)
+
 import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
@@ -5,6 +7,7 @@ import {
   onAuthStateChanged,
   signOut,
 } from "firebase/auth";
+
 import {
   getFirestore,
   collection,
@@ -19,6 +22,10 @@ import {
   getDoc,
 } from "firebase/firestore";
 
+// ============================
+// FIREBASE CONFIG
+// ============================
+
 const firebaseConfig = {
   apiKey: "AIzaSyBz00_ifpMM2tbRBILZVU-cEvfiBqTCRMI",
   authDomain: "crft-c9f31.firebaseapp.com",
@@ -29,6 +36,7 @@ const firebaseConfig = {
   measurementId: "G-G1NBRQ5G9",
 };
 
+// Prevent duplicate init
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
@@ -104,6 +112,23 @@ export async function createSubmission(record) {
   return { id };
 }
 
+// 🔥 IMPORTANT: manual evaluation saved here
+export async function updateSubmissionManual(id, payload) {
+  const ref = doc(db, COLLECTIONS.submissions, id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+
+  await setDoc(
+    ref,
+    {
+      ...snap.data(),
+      ...payload,
+      manualUpdatedAt: new Date().toISOString(),
+    },
+    { merge: true }
+  );
+}
+
 export function subscribeToSubmissions(callback) {
   const q = query(
     collection(db, COLLECTIONS.submissions),
@@ -124,9 +149,10 @@ export async function deleteSubmissionById(id) {
 }
 
 // ============================
-// ACTIVATION SYSTEM
+// ACTIVATION SYSTEM (CASE-LEVEL)
 // ============================
 
+// generate code
 export function generateActivationCode(length = 6) {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
@@ -136,8 +162,9 @@ export function generateActivationCode(length = 6) {
   return out;
 }
 
+// create ONE code per case/day
 export async function createActivation(payload) {
-  const id = `${payload.sessionCode}_${payload.sessionDay}_${payload.caseId}_${payload.residentId}`;
+  const id = `${payload.sessionCode}_${payload.sessionDay}_${payload.caseId}`;
 
   await setDoc(doc(db, COLLECTIONS.activations, id), {
     ...payload,
@@ -148,6 +175,7 @@ export async function createActivation(payload) {
   return { id };
 }
 
+// listen
 export function subscribeToActivations(callback) {
   const q = query(
     collection(db, COLLECTIONS.activations),
@@ -163,10 +191,7 @@ export function subscribeToActivations(callback) {
   });
 }
 
-// ============================
-// VALIDATION
-// ============================
-
+// validate access
 export async function validateActivation({
   residentId,
   activationCode,
@@ -182,7 +207,6 @@ export async function validateActivation({
 
   const found = rows.find(
     (r) =>
-      r.residentId === residentId &&
       String(r.activationCode || "").toUpperCase() ===
         String(activationCode || "").toUpperCase() &&
       Number(r.sessionDay) === Number(sessionDay) &&
@@ -190,28 +214,43 @@ export async function validateActivation({
   );
 
   if (!found) return { ok: false, message: "No matching activation found." };
-  if (!found.isActive) return { ok: false, message: "Activation is inactive." };
-  if (found.used) return { ok: false, message: "Activation already used." };
+  if (!found.isActive)
+    return { ok: false, message: "Activation is inactive." };
+
+  if (!(found.allowedResidentIds || []).includes(residentId))
+    return { ok: false, message: "Resident not allowed." };
+
+  if ((found.usedResidentIds || []).includes(residentId))
+    return { ok: false, message: "Already used by this resident." };
 
   return { ok: true, activation: found };
 }
 
-// ============================
-// MARK USED
-// ============================
-
-export async function markActivationUsed(id) {
+// mark usage PER resident
+export async function markActivationUsed(id, residentId) {
   const ref = doc(db, COLLECTIONS.activations, id);
   const snap = await getDoc(ref);
 
   if (!snap.exists()) return;
 
+  const data = snap.data();
+
+  const usedResidentIds = Array.from(
+    new Set([...(data.usedResidentIds || []), residentId])
+  );
+
+  const allowed = data.allowedResidentIds || [];
+
+  const allUsed =
+    allowed.length > 0 &&
+    allowed.every((r) => usedResidentIds.includes(r));
+
   await setDoc(
     ref,
     {
-      ...snap.data(),
-      used: true,
-      isActive: false,
+      ...data,
+      usedResidentIds,
+      isActive: !allUsed,
       updatedAt: new Date().toISOString(),
     },
     { merge: true }
