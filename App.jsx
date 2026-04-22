@@ -5,6 +5,7 @@ import {
   saveSessionConfig,
   createSubmission,
   subscribeToSubmissions,
+  updateSubmissionManual,
   createActivation,
   validateActivation,
   markActivationUsed,
@@ -18,7 +19,7 @@ import {
 // ============================================================
 
 const PHASES = ["baseline", "intervention"];
-const RESIDENT_IDS = Array.from({ length: 30 }, (_, i) => `R${i + 1}`);
+const RESIDENT_IDS = ["R1", "R2", "R3", "R4", "R5"];
 const ROLE_OPTIONS = ["Resident", "Evaluator", "Program Director"];
 
 const CRFT_DOMAINS = [
@@ -639,9 +640,9 @@ function EvaluatorView({
   activations,
   onBack,
   onCreateActivation,
+  onSaveManualEvaluation,
 }) {
   const [activationForm, setActivationForm] = useState({
-    residentId: "R1",
     sessionDay: session.dayIndex,
     caseId: session.currentCaseId,
     note: "",
@@ -658,6 +659,7 @@ function EvaluatorView({
       selectedBiasTags: record.manualBiasTags || [],
       selectedErrorTags: record.manualErrorTags || [],
       comments: record.manualComments || "",
+      submitted: !!(record.manualDomainScores && Object.keys(record.manualDomainScores).length),
     };
   }
 
@@ -670,30 +672,62 @@ function EvaluatorView({
   }
 
   function toggleManualTag(recordId, field, tag) {
-    const manual = getManualState({ id: recordId, manualDomainScores: {}, manualBiasTags: [], manualErrorTags: [], manualComments: "" });
-    const current = manual[field] || [];
-    const exists = current.includes(tag);
-    const next = exists ? current.filter((x) => x !== tag) : [...current, tag];
-    setManualState(recordId, {
-      ...manual,
-      [field]: next,
-    });
+    const currentManual = manualMap[recordId] || {};
+    const current = currentManual[field] || [];
+    const next = current.includes(tag) ? current.filter((x) => x !== tag) : [...current, tag];
+    setManualMap((prev) => ({
+      ...prev,
+      [recordId]: {
+        ...(prev[recordId] || {}),
+        [field]: next,
+      },
+    }));
   }
 
-  function handleSubmitManualEvaluation(recordId) {
+  async function handleSubmitManualEvaluation(recordId, record) {
+    const manual = manualMap[recordId] || buildManualDefaults(record);
+    const manualSummary = buildManualSummary(manual);
+    const generatedComment = buildManualComment(
+      manualSummary,
+      manual.selectedBiasTags || [],
+      manual.selectedErrorTags || []
+    );
+    const calibration = buildCalibration(
+      { total: record.autoTotal, domainScores: record.autoDomainScores || {} },
+      manualSummary
+    );
+
+    await onSaveManualEvaluation(recordId, {
+      manualDomainScores: manualSummary.domainScores,
+      manualTotal: manualSummary.total,
+      manualGlobalRating: manualSummary.globalRating,
+      manualBiasTags: manual.selectedBiasTags || [],
+      manualErrorTags: manual.selectedErrorTags || [],
+      manualComments: generatedComment,
+      calibration,
+    });
+
     setManualSubmittedMap((prev) => ({ ...prev, [recordId]: true }));
+    setManualMap((prev) => ({
+      ...prev,
+      [recordId]: {
+        ...(prev[recordId] || {}),
+        submitted: true,
+        comments: generatedComment,
+      },
+    }));
   }
 
   async function handleCreateActivation() {
     const code = generateActivationCode();
     const payload = {
-      residentId: activationForm.residentId,
       sessionCode: session.sessionCode,
       sessionDay: Number(activationForm.sessionDay),
       caseId: activationForm.caseId,
       activationCode: code,
+      allowedResidentIds: RESIDENT_IDS,
+      usedResidentIds: [],
       isActive: true,
-      used: false,
       note: activationForm.note || "",
     };
     await onCreateActivation(payload);
@@ -771,13 +805,9 @@ function EvaluatorView({
 
           <Card title="Activation Manager">
             <div className="space-y-3">
-              <select
-                className="w-full rounded-2xl border p-3"
-                value={activationForm.residentId}
-                onChange={(e) => setActivationForm((f) => ({ ...f, residentId: e.target.value }))}
-              >
-                {RESIDENT_IDS.map((id) => <option key={id}>{id}</option>)}
-              </select>
+              <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+                Generate one code for the selected case/day. For now, the code applies to residents R1–R5.
+              </div>
               <input
                 type="number"
                 className="w-full rounded-2xl border p-3"
@@ -802,7 +832,7 @@ function EvaluatorView({
               </Button>
               {createdCode ? (
                 <div className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-700">
-                  New code for {activationForm.residentId}: <span className="font-semibold">{createdCode}</span>
+                  Case code for {activationForm.caseId} / Day {activationForm.sessionDay}: <span className="font-semibold">{createdCode}</span>
                 </div>
               ) : null}
             </div>
@@ -815,9 +845,11 @@ function EvaluatorView({
                 .slice(0, 10)
                 .map((a) => (
                   <div key={a.id} className="rounded-xl border p-3">
-                    <div className="font-medium">{a.residentId}</div>
+                    <div className="font-medium">{a.caseId} · Day {a.sessionDay}</div>
                     <div>Code: {a.activationCode}</div>
-                    <div>Status: {a.used ? "Used" : a.isActive ? "Active" : "Inactive"}</div>
+                    <div>Allowed residents: {(a.allowedResidentIds || []).join(", ")}</div>
+                    <div>Used by: {(a.usedResidentIds || []).length ? a.usedResidentIds.join(", ") : "None"}</div>
+                    <div>Status: {a.isActive ? "Active" : "Inactive"}</div>
                   </div>
                 ))}
               {!activations.filter((a) => a.sessionDay === session.dayIndex && a.caseId === session.currentCaseId).length ? (
@@ -838,122 +870,176 @@ function EvaluatorView({
           <div className="space-y-4">
             {todayRecords.map((record) => {
               const manual = getManualState(record);
+              const manualSummary = buildManualSummary(manual);
+              const calibration = buildCalibration(
+                { total: record.autoTotal, domainScores: record.autoDomainScores || {} },
+                manualSummary
+              );
+              const manualAlreadySaved = !!manualSubmittedMap[record.id] || !!(record.manualDomainScores && Object.keys(record.manualDomainScores).length);
+
               return (
                 <div key={record.id} className="rounded-2xl border p-4">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="font-semibold">{record.residentId}</div>
-                      <div className="text-sm text-slate-500">Auto total: {record.autoTotal}/24 · Benchmark: {record.benchmark?.benchmarkPercent ?? 0}%</div>
+                      <div className="text-sm text-slate-500">{record.caseId} · Day {record.sessionDay} · Benchmark {record.benchmark?.benchmarkPercent ?? 0}%</div>
                     </div>
-                    <div className="text-sm text-slate-500">{record.caseId} · Day {record.sessionDay}</div>
+                    <div className="text-sm text-slate-500">Confidence {record.confidence}% · Time {record.timeSeconds}s</div>
                   </div>
 
-                  <div className="grid gap-6 lg:grid-cols-2">
-                    <div className="space-y-3">
-                      <div className="rounded-xl bg-slate-50 p-3 text-sm"><span className="font-medium">Leading diagnosis:</span> {record.leadingDiagnosis || "—"}</div>
-                      <div className="rounded-xl bg-slate-50 p-3 text-sm leading-6 whitespace-pre-wrap">{record.freeText || "—"}</div>
+                  <div className="mb-6 grid gap-6 xl:grid-cols-3">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="mb-3 text-base font-semibold">Resident Submission</div>
+                      <div className="rounded-xl bg-white p-3 text-sm"><span className="font-medium">Leading diagnosis:</span> {record.leadingDiagnosis || "—"}</div>
+                      <div className="mt-3 rounded-xl bg-white p-3 text-sm leading-6 whitespace-pre-wrap">{record.freeText || "—"}</div>
                     </div>
 
-                    <div className="space-y-3">
-                      {CRFT_DOMAINS.map((domain) => (
-                        <div key={domain} className="grid grid-cols-[1fr,180px] items-center gap-3">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="mb-3 text-base font-semibold">Automatic Evaluation</div>
+                      {manualAlreadySaved ? (
+                        <div className="space-y-2 text-sm">
+                          {CRFT_DOMAINS.map((domain) => (
+                            <div key={domain} className="flex items-center justify-between">
+                              <span>{DOMAIN_LABELS[domain]}</span>
+                              <span className="font-semibold">{record.autoDomainScores?.[domain] ?? 0}/4</span>
+                            </div>
+                          ))}
+                          <div className="border-t pt-2 font-semibold">Auto total: {record.autoTotal}/24</div>
+                          <div>Global rating: {record.autoGlobalRating || "—"}</div>
+                          <div>Dangerous miss: {record.dangerousMiss ? "Yes" : "No"}</div>
+                          <div>Benchmark: {record.benchmark?.benchmarkPercent ?? 0}%</div>
+                          <div className="pt-2">
+                            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Auto cognitive bias tags</div>
+                            <div className="flex flex-wrap gap-2">
+                              {(record.autoBiasTags || []).length ? record.autoBiasTags.map((tag) => (
+                                <span key={tag} className="rounded-full bg-purple-100 px-3 py-1 text-xs text-purple-800">{COGNITIVE_BIASES[tag] || tag}</span>
+                              )) : <span className="text-slate-500">None</span>}
+                            </div>
+                          </div>
+                          <div className="pt-2">
+                            <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Auto reasoning error tags</div>
+                            <div className="flex flex-wrap gap-2">
+                              {(record.autoErrorTags || []).length ? record.autoErrorTags.map((tag) => (
+                                <span key={tag} className="rounded-full bg-rose-100 px-3 py-1 text-xs text-rose-800">{REASONING_ERRORS[tag] || tag}</span>
+                              )) : <span className="text-slate-500">None</span>}
+                            </div>
+                          </div>
+                          <div className="mt-3 rounded-xl bg-white p-3 text-sm leading-6">
+                            <div className="mb-2 font-medium">Auto feedback</div>
+                            {record.feedbackText}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl bg-white p-3 text-sm text-slate-500">
+                          Automatic evaluation is hidden until the evaluator submits the manual evaluation.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="mb-3 text-base font-semibold">Calibration Summary</div>
+                      <div className="space-y-2 text-sm">
+                        <div>Manual total: <span className="font-semibold">{manualSummary.total}/24</span></div>
+                        <div>Manual rating: <span className="font-semibold">{manualSummary.globalRating}</span></div>
+                        <div>Total difference: <span className="font-semibold">{calibration.totalDifference}</span></div>
+                        <div>Agreement: <span className="font-semibold">{calibration.agreementClass}</span></div>
+                        <div>Exact match domains: <span className="font-semibold">{calibration.exactMatchDomains}/6</span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-white p-4 shadow-sm">
+                    <div className="mb-4 text-base font-semibold">Manual Evaluation</div>
+                    <div className="grid gap-6 xl:grid-cols-2">
+                      <div className="space-y-3">
+                        {CRFT_DOMAINS.map((domain) => (
+                          <div key={domain} className="grid grid-cols-[1fr,180px] items-center gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{DOMAIN_LABELS[domain]}</div>
+                              <div className="text-xs text-slate-500">Set manual score independent of auto score</div>
+                            </div>
+                            <select
+                              className="rounded-2xl border p-2"
+                              value={manual.domainScores[domain]}
+                              onChange={(e) => setManualState(record.id, {
+                                ...manual,
+                                domainScores: {
+                                  ...manual.domainScores,
+                                  [domain]: Number(e.target.value),
+                                },
+                              })}
+                            >
+                              {[0,1,2,3,4].map((n) => (
+                                <option key={n} value={n}>{n} — {DOMAIN_ANCHORS_0_4[n]}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className="grid gap-3 md:grid-cols-2">
                           <div>
-                            <div className="text-sm font-medium">{DOMAIN_LABELS[domain]}</div>
-                            <div className="text-xs text-slate-500">Auto: {record.autoDomainScores?.[domain] ?? 0}/4</div>
+                            <label className="mb-2 block text-sm font-medium">Cognitive Bias Tags</label>
+                            <div className="mb-2 text-xs text-slate-500">Tick one or more thinking traps that explain why the resident went wrong.</div>
+                            <div className="grid gap-2">
+                              {Object.entries(COGNITIVE_BIASES).map(([key, label]) => (
+                                <label key={key} className="flex items-start gap-2 rounded-xl border p-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={(manual.selectedBiasTags || []).includes(key)}
+                                    onChange={() => toggleManualTag(record.id, "selectedBiasTags", key)}
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              ))}
+                            </div>
                           </div>
-                          <select
-                            className="rounded-2xl border p-2"
-                            value={manual.domainScores[domain]}
-                            onChange={(e) => setManualState(record.id, {
-                              ...manual,
-                              domainScores: {
-                                ...manual.domainScores,
-                                [domain]: Number(e.target.value),
-                              },
-                            })}
-                          >
-                            {[0,1,2,3,4].map((n) => (
-                              <option key={n} value={n}>{n} — {DOMAIN_ANCHORS_0_4[n]}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
 
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div>
-                          <label className="mb-2 block text-sm font-medium">Cognitive Bias Tags</label>
-                          <div className="mb-2 text-xs text-slate-500">
-                            Why the reasoning went wrong
+                          <div>
+                            <label className="mb-2 block text-sm font-medium">Reasoning Error Tags</label>
+                            <div className="mb-2 text-xs text-slate-500">Tick one or more observable reasoning problems seen in the final answer.</div>
+                            <div className="grid gap-2">
+                              {Object.entries(REASONING_ERRORS).map(([key, label]) => (
+                                <label key={key} className="flex items-start gap-2 rounded-xl border p-2 text-sm">
+                                  <input
+                                    type="checkbox"
+                                    checked={(manual.selectedErrorTags || []).includes(key)}
+                                    onChange={() => toggleManualTag(record.id, "selectedErrorTags", key)}
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              ))}
+                            </div>
                           </div>
-                          <select
-                            multiple
-                            className="min-h-[140px] w-full rounded-2xl border p-3"
-                            value={manual.selectedBiasTags}
-                            onChange={(e) => setManualState(record.id, {
-                              ...manual,
-                              selectedBiasTags: Array.from(e.target.selectedOptions).map((o) => o.value),
-                            })}
-                          >
-                            {Object.entries(COGNITIVE_BIASES).map(([key, label]) => (
-                              <option key={key} value={key}>{label}</option>
-                            ))}
-                          </select>
                         </div>
 
                         <div>
-                          <label className="mb-2 block text-sm font-medium">Reasoning Error Tags</label>
-                          <div className="mb-2 text-xs text-slate-500">
-                            What went wrong in the reasoning output
+                          <label className="mb-2 block text-sm font-medium">Generated Manual Evaluation</label>
+                          <div className="rounded-2xl border bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+                            {buildManualComment(manualSummary, manual.selectedBiasTags || [], manual.selectedErrorTags || [])}
                           </div>
-                          <select
-                            multiple
-                            className="min-h-[140px] w-full rounded-2xl border p-3"
-                            value={manual.selectedErrorTags}
-                            onChange={(e) => setManualState(record.id, {
-                              ...manual,
-                              selectedErrorTags: Array.from(e.target.selectedOptions).map((o) => o.value),
-                            })}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <Button
+                            onClick={() => handleSubmitManualEvaluation(record.id, record)}
+                            className="bg-slate-900 text-white"
                           >
-                            {Object.entries(REASONING_ERRORS).map(([key, label]) => (
-                              <option key={key} value={key}>{label}</option>
-                            ))}
-                          </select>
+                            Submit Manual Evaluation
+                          </Button>
+                          {manualAlreadySaved ? (
+                            <span className="text-sm text-emerald-700">Manual evaluation submitted</span>
+                          ) : (
+                            <span className="text-sm text-slate-500">Submit manual evaluation to reveal automatic evaluation.</span>
+                          )}
                         </div>
                       </div>
-
-                      <textarea
-                        className="min-h-[100px] w-full rounded-2xl border p-3"
-                        value={manual.comments}
-                        onChange={(e) => setManualState(record.id, { ...manual, comments: e.target.value })}
-                        placeholder="Manual evaluator comments"
-                      />
-
-                      <div className="flex items-center gap-3">
-                        <Button
-                          onClick={() => handleSubmitManualEvaluation(record.id)}
-                          className="bg-slate-900 text-white"
-                        >
-                          Submit Manual Evaluation
-                        </Button>
-                        {manualSubmittedMap[record.id] ? (
-                          <span className="text-sm text-emerald-700">Manual evaluation submitted</span>
-                        ) : (
-                          <span className="text-sm text-slate-500">Auto feedback stays hidden until manual evaluation is submitted</span>
-                        )}
-                      </div>
-
-                      {manualSubmittedMap[record.id] ? (
-                        <div className="rounded-xl bg-slate-50 p-3 text-sm leading-6">
-                          <div className="mb-2 font-medium">Auto Feedback (shown after manual submission)</div>
-                          {record.feedbackText}
-                        </div>
-                      ) : null}
                     </div>
                   </div>
                 </div>
               );
-            })}
-            {!todayRecords.length ? <div className="text-slate-500">No submissions yet for the current case/day.</div> : null}
+            })}            {!todayRecords.length ? <div className="text-slate-500">No submissions yet for the current case/day.</div> : null}
           </div>
         </Card>
       </div>
@@ -1250,6 +1336,7 @@ export default function App() {
         activations={activations}
         onBack={() => setRole("")}
         onCreateActivation={handleCreateActivation}
+        onSaveManualEvaluation={handleSaveManualEvaluation}
       />
     );
   }
