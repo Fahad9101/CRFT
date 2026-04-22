@@ -82,15 +82,20 @@ const CASE_LIBRARY = [
     id: "C1",
     title: "Acute Dyspnea Overnight",
     difficulty: "moderate",
+    traps: ["anchoring on heart failure", "missing PE"],
+    domainFocus: ["problemFraming", "differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
     vignette:
       "68-year-old man with HTN and CAD presents with acute nocturnal dyspnea, orthopnea, tachycardia, and hypoxemia.",
-    traps: ["anchoring on heart failure", "missing PE"],
     hiddenRubric: {
       dangerousDiagnoses: ["pulmonary embolism", "pe", "acs", "flash pulmonary edema"],
-      acceptedLeadingDiagnoses: ["acute heart failure", "pulmonary embolism", "acs with pulmonary edema"],
       conceptMap: {
         problemFraming: ["acute", "dyspnea", "hypoxemia", "cardiopulmonary"],
-        syndromeIdentification: ["acute cardiopulmonary syndrome", "acute decompensated heart failure", "pulmonary embolism syndrome"],
+        syndromeIdentification: [
+          "acute cardiopulmonary syndrome",
+          "acute decompensated heart failure",
+          "pulmonary embolism syndrome",
+        ],
         differentialDiagnosis: ["heart failure", "pulmonary embolism", "pe", "acs", "pneumonia"],
         dataInterpretation: ["bnp", "troponin", "crackles", "jvp", "interstitial opacities"],
         anticipation: ["deterioration", "respiratory failure", "hemodynamic worsening", "oxygen"],
@@ -98,18 +103,19 @@ const CASE_LIBRARY = [
       },
       dangerousMissPenalty: { penaltyPoints: 2 },
       biasTriggers: { anchoring: ["heart failure"] },
+      acceptedLeadingDiagnoses: ["acute heart failure", "pulmonary embolism", "acs with pulmonary edema"],
     },
   },
   {
     id: "C2",
     title: "Fever, Hypotension, and AKI",
     difficulty: "moderate",
-    vignette:
-      "72-year-old woman presents with fever, confusion, hypotension, elevated lactate, and AKI.",
     traps: ["narrowing too fast to UTI", "missing source control issue"],
+    domainFocus: ["syndromeIdentification", "anticipation", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette: "72-year-old woman presents with fever, confusion, hypotension, elevated lactate, and AKI.",
     hiddenRubric: {
       dangerousDiagnoses: ["septic shock", "obstructive infection", "adrenal crisis"],
-      acceptedLeadingDiagnoses: ["septic shock", "urosepsis", "biliary sepsis"],
       conceptMap: {
         problemFraming: ["shock", "infection", "aki", "altered mental status"],
         syndromeIdentification: ["septic shock", "distributive shock", "sepsis"],
@@ -120,18 +126,20 @@ const CASE_LIBRARY = [
       },
       dangerousMissPenalty: { penaltyPoints: 2 },
       biasTriggers: {},
+      acceptedLeadingDiagnoses: ["septic shock", "urosepsis", "biliary sepsis"],
     },
   },
   {
     id: "C3",
     title: "Chest Pain with Mild Troponin Rise",
     difficulty: "moderate",
+    traps: ["labeling as reflux", "ignoring ACS"],
+    domainFocus: ["problemFraming", "dataInterpretation"],
+    targetDomains: CRFT_DOMAINS,
     vignette:
       "59-year-old man with diabetes presents with exertional chest pressure, diaphoresis, and a mild rise in troponin.",
-    traps: ["labeling as reflux", "ignoring ACS"],
     hiddenRubric: {
       dangerousDiagnoses: ["acs", "nstemi", "aortic dissection", "pulmonary embolism"],
-      acceptedLeadingDiagnoses: ["acs", "nste-acs", "unstable angina", "nstemi"],
       conceptMap: {
         problemFraming: ["chest pain", "ischemic", "troponin", "high risk"],
         syndromeIdentification: ["acute coronary syndrome", "acs", "nste-acs"],
@@ -142,6 +150,174 @@ const CASE_LIBRARY = [
       },
       dangerousMissPenalty: { penaltyPoints: 2 },
       biasTriggers: { anchoring: ["gerd", "reflux"] },
+      acceptedLeadingDiagnoses: ["acs", "nste-acs", "unstable angina", "nstemi"],
+    },
+  },
+  {
+    id: "C4",
+    title: "Confusion and Severe Hyponatremia",
+    difficulty: "moderate",
+    traps: ["treating the sodium number only", "not classifying tonicity/volume status"],
+    domainFocus: ["syndromeIdentification", "dataInterpretation", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "76-year-old woman presents with confusion and falls. Sodium is 116 mmol/L, serum osmolality is low, and urine osmolality is high.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["symptomatic hyponatremia", "seizure risk", "osmotic demyelination risk"],
+      conceptMap: {
+        problemFraming: ["confusion", "falls", "severe hyponatremia", "symptomatic"],
+        syndromeIdentification: ["hypotonic hyponatremia", "euvolemic hyponatremia", "siadh"],
+        differentialDiagnosis: ["siadh", "thiazide", "adrenal insufficiency", "hypothyroidism"],
+        dataInterpretation: ["serum osmolality", "urine osmolality", "urine sodium", "severity"],
+        anticipation: ["seizure", "overcorrection", "hypertonic saline", "monitoring"],
+        reassessment: ["repeat sodium", "correction rate", "q4h", "recheck"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 2 },
+      biasTriggers: {},
+      acceptedLeadingDiagnoses: ["symptomatic hypotonic hyponatremia", "siadh", "thiazide-associated hyponatremia"],
+    },
+  },
+  {
+    id: "C5",
+    title: "Jaundice with RUQ Pain",
+    difficulty: "moderate",
+    traps: ["calling it hepatitis only", "missing cholangitis"],
+    domainFocus: ["differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "63-year-old patient has fever, jaundice, RUQ pain, leukocytosis, and cholestatic liver tests.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["ascending cholangitis", "septic shock"],
+      conceptMap: {
+        problemFraming: ["fever", "jaundice", "ruq pain", "cholestatic"],
+        syndromeIdentification: ["ascending cholangitis", "biliary sepsis"],
+        differentialDiagnosis: ["ascending cholangitis", "choledocholithiasis", "acute cholecystitis", "hepatitis"],
+        dataInterpretation: ["bilirubin", "alp", "ast", "alt", "leukocytosis"],
+        anticipation: ["ercp", "source control", "sepsis", "hemodynamic worsening"],
+        reassessment: ["fever trend", "bilirubin trend", "post drainage assessment"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["hepatitis"] },
+      acceptedLeadingDiagnoses: ["ascending cholangitis", "choledocholithiasis with infection"],
+    },
+  },
+  {
+    id: "C6",
+    title: "Leg Swelling and Pleuritic Pain",
+    difficulty: "moderate",
+    traps: ["calling it cellulitis only", "missing VTE"],
+    domainFocus: ["problemFraming", "differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "44-year-old woman with unilateral leg swelling develops pleuritic chest pain and tachycardia two days later.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["pulmonary embolism", "massive pe"],
+      conceptMap: {
+        problemFraming: ["unilateral leg swelling", "pleuritic chest pain", "tachycardia"],
+        syndromeIdentification: ["venous thromboembolism", "pulmonary embolism"],
+        differentialDiagnosis: ["pe", "dvt", "cellulitis", "pneumonia", "acs"],
+        dataInterpretation: ["risk factors", "tachycardia", "hypoxemia", "d-dimer"],
+        anticipation: ["hemodynamic collapse", "anticoagulation", "ctpa", "right heart strain"],
+        reassessment: ["oxygen", "vitals", "bleeding risk", "response to therapy"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["cellulitis", "musculoskeletal"] },
+      acceptedLeadingDiagnoses: ["pulmonary embolism", "venous thromboembolism", "dvt with pe"],
+    },
+  },
+  {
+    id: "C7",
+    title: "GI Bleeding on Anticoagulation",
+    difficulty: "moderate",
+    traps: ["stopping all therapy without plan", "missing resuscitation priorities"],
+    domainFocus: ["anticipation", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette: "70-year-old man on apixaban presents with melena, orthostasis, Hb 78 g/L, and rising BUN.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["hemorrhagic shock", "massive gi bleed"],
+      conceptMap: {
+        problemFraming: ["melena", "orthostasis", "anemia", "anticoagulation"],
+        syndromeIdentification: ["upper gi bleeding", "acute blood loss"],
+        differentialDiagnosis: ["peptic ulcer bleed", "variceal bleed", "malignancy", "avm"],
+        dataInterpretation: ["hb", "bun", "hemodynamics", "ongoing bleeding"],
+        anticipation: ["transfusion", "endoscopy", "reversal", "shock"],
+        reassessment: ["repeat hb", "vitals", "ongoing melena", "response"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 2 },
+      biasTriggers: {},
+      acceptedLeadingDiagnoses: ["upper gi bleed", "anticoagulant-associated gi bleeding"],
+    },
+  },
+  {
+    id: "C8",
+    title: "New Delirium on the Ward",
+    difficulty: "moderate",
+    traps: ["calling it age only", "not searching for precipitant"],
+    domainFocus: ["problemFraming", "reassessment"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "81-year-old inpatient becomes acutely confused overnight after urinary retention, constipation, and a new sedating medication.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["delirium due to sepsis", "stroke", "medication toxicity"],
+      conceptMap: {
+        problemFraming: ["acute confusion", "delirium", "hospitalized", "precipitant"],
+        syndromeIdentification: ["delirium", "toxic metabolic encephalopathy"],
+        differentialDiagnosis: ["medication effect", "urinary retention", "constipation", "infection", "stroke"],
+        dataInterpretation: ["acute onset", "attention", "retention", "med changes"],
+        anticipation: ["falls", "aspiration", "self-harm", "deconditioning"],
+        reassessment: ["review meds", "bladder scan", "repeat neuro exam", "follow mentation"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 2 },
+      biasTriggers: {},
+      acceptedLeadingDiagnoses: ["delirium", "multifactorial delirium"],
+    },
+  },
+  {
+    id: "C9",
+    title: "Metabolic Acidosis with Tachypnea",
+    difficulty: "moderate",
+    traps: ["calling it sepsis only", "missing DKA"],
+    domainFocus: ["syndromeIdentification", "dataInterpretation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "28-year-old patient with diabetes presents with abdominal pain, vomiting, tachypnea, glucose 28 mmol/L, and high anion gap metabolic acidosis.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["dka", "severe acidosis", "cerebral edema"],
+      conceptMap: {
+        problemFraming: ["diabetes", "abdominal pain", "tachypnea", "anion gap"],
+        syndromeIdentification: ["dka", "high anion gap metabolic acidosis"],
+        differentialDiagnosis: ["dka", "sepsis", "toxic alcohol", "lactic acidosis"],
+        dataInterpretation: ["anion gap", "ketones", "glucose", "potassium", "bicarbonate"],
+        anticipation: ["potassium drop", "insulin", "icu", "cerebral edema"],
+        reassessment: ["anion gap closure", "glucose", "potassium", "repeat gas"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 2 },
+      biasTriggers: { anchoring: ["sepsis"] },
+      acceptedLeadingDiagnoses: ["dka", "diabetic ketoacidosis"],
+    },
+  },
+  {
+    id: "C10",
+    title: "Sudden Back Pain and Hypotension",
+    difficulty: "high",
+    traps: ["assuming renal colic", "missing aortic catastrophe"],
+    domainFocus: ["differentialDiagnosis", "anticipation"],
+    targetDomains: CRFT_DOMAINS,
+    vignette:
+      "74-year-old man with vascular disease presents with sudden severe back pain, diaphoresis, hypotension, and a pulsatile abdominal mass.",
+    hiddenRubric: {
+      dangerousDiagnoses: ["ruptured aaa", "aortic dissection"],
+      conceptMap: {
+        problemFraming: ["sudden back pain", "hypotension", "vascular disease", "pulsatile mass"],
+        syndromeIdentification: ["aortic catastrophe", "ruptured aaa"],
+        differentialDiagnosis: ["ruptured aaa", "aortic dissection", "renal colic", "mesenteric ischemia"],
+        dataInterpretation: ["shock", "pulsatile mass", "abdominal pain", "hemodynamics"],
+        anticipation: ["death", "massive hemorrhage", "vascular surgery", "resuscitation"],
+        reassessment: ["hemodynamics", "blood products", "operative readiness"],
+      },
+      dangerousMissPenalty: { penaltyPoints: 3 },
+      biasTriggers: {},
+      acceptedLeadingDiagnoses: ["ruptured aaa", "aortic catastrophe"],
     },
   },
 ];
@@ -338,6 +514,26 @@ function buildManualComment(manualSummary, selectedBiasTags = [], selectedErrorT
     : "A clear weakest-domain pattern was not identified.";
 
   return `${strengthSentence} ${weaknessSentence} The evaluator identified ${biasText}, with the main observable reasoning problems being ${errorText}. Overall manual performance was rated as ${manualSummary.globalRating} with a total score of ${manualSummary.total}/24. The resident should focus on making reasoning more explicit, prioritizing the differential more clearly, and updating the assessment more deliberately as new information emerges.`;
+
+
+function buildModelSolution(caseObj) {
+  const accepted = caseObj.hiddenRubric?.acceptedLeadingDiagnoses || [];
+  const conceptMap = caseObj.hiddenRubric?.conceptMap || {};
+  const primaryDx = accepted[0] || "the leading dangerous diagnosis";
+  const differential = (conceptMap.differentialDiagnosis || []).slice(0, 4).join(", ") || "a prioritized differential";
+  const keyData = (conceptMap.dataInterpretation || []).slice(0, 4).join(", ") || "the key supporting data";
+  const anticipatory = (conceptMap.anticipation || []).slice(0, 3).join(", ") || "the major immediate risks";
+  const reassess = (conceptMap.reassessment || []).slice(0, 3).join(", ") || "serial reassessment targets";
+
+  return [
+    `Problem representation: ${caseObj.vignette}`,
+    `Leading diagnosis: ${primaryDx}.`,
+    `Prioritized differential: ${differential}.`,
+    `Key data to integrate: ${keyData}.`,
+    `Immediate priorities: stabilize the patient, address the most dangerous possibilities first, and act on ${anticipatory}.`,
+    `Reassessment plan: follow ${reassess} and update the working diagnosis as new information emerges.`,
+  ].join(" ");
+}
 }
 
 function Button({ children, className = "", ...props }) {
@@ -863,6 +1059,15 @@ function EvaluatorView({
           <div className="space-y-3">
             <div className="text-lg font-semibold">{currentCase.id} — {currentCase.title}</div>
             <div className="text-sm">{currentCase.vignette}</div>
+          </div>
+        </Card>
+
+        <Card title="Model Solution for Evaluator">
+          <div className="space-y-3 text-sm">
+            <div className="font-medium">Expert reference answer for the released case</div>
+            <div className="rounded-2xl bg-slate-50 p-4 leading-7 text-slate-700">
+              {buildModelSolution(currentCase)}
+            </div>
           </div>
         </Card>
 
