@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ensureAnonymousAuth,
+  signInStaff,
+  getCurrentStaffRole,
+  logoutFirebase,
   subscribeToSessionConfig,
   saveSessionConfig,
-  createSubmission,
   subscribeToSubmissions,
   updateSubmissionManual,
   createActivation,
   validateActivation,
-  markActivationUsed,
+  submitResidentRecord,
   subscribeToActivations,
   generateActivationCode,
 } from "./firebase";
@@ -323,7 +325,7 @@ const CASE_LIBRARY = [
 ];
 
 const defaultSession = {
-  sessionCode: "CRFT-001",
+  sessionCode: "CRFT-AUG26",
   isOpen: true,
   dayIndex: 1,
   phase: "baseline",
@@ -558,7 +560,23 @@ function Card({ title, children, right }) {
   );
 }
 
-function RoleGateway({ onSelect }) {
+function RoleGateway({ onSelect, onStaffLogin }) {
+  const [staffTarget, setStaffTarget] = useState("");
+  const [error, setError] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
+
+  async function handleStaffLogin() {
+    setSigningIn(true);
+    setError("");
+    try {
+      await onStaffLogin(staffTarget);
+    } catch (e) {
+      setError(e?.message || "Sign-in failed.");
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 p-6 text-slate-900">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -579,13 +597,25 @@ function RoleGateway({ onSelect }) {
               </p>
               <Button
                 className="mt-6 w-full bg-slate-900 text-white"
-                onClick={() => onSelect(role)}
+                onClick={() => role === "Resident" ? onSelect(role) : setStaffTarget(role)}
               >
                 Continue as {role}
               </Button>
             </section>
           ))}
         </div>
+        {staffTarget ? (
+          <section className="mx-auto max-w-lg rounded-2xl bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold">{staffTarget} sign in</h2>
+              <Button className="border bg-white" onClick={() => setStaffTarget("")}>Cancel</Button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <Button className="w-full bg-slate-900 text-white" onClick={handleStaffLogin}>{signingIn ? "Signing in…" : "Sign in with Google"}</Button>
+              {error ? <div className="text-sm text-rose-600">{error}</div> : null}
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );
@@ -693,7 +723,7 @@ function ResidentView({
       },
     };
 
-    await onSubmitResident(record, access.id);
+    await onSubmitResident(record, access);
     setSubmittedFeedback({
       autoResult,
       benchmark,
@@ -1472,6 +1502,7 @@ export default function App() {
   const [session, setSession] = useState(defaultSession);
   const [records, setRecords] = useState([]);
   const [activations, setActivations] = useState([]);
+  const [staffRole, setStaffRole] = useState(null);
 
   const currentCase = useMemo(
     () => CASE_LIBRARY.find((c) => c.id === session.currentCaseId) || CASE_LIBRARY[0],
@@ -1480,8 +1511,6 @@ export default function App() {
 
   useEffect(() => {
     let unsubSession = null;
-    let unsubSubmissions = null;
-    let unsubActivations = null;
 
     async function boot() {
       await ensureAnonymousAuth();
@@ -1495,13 +1524,10 @@ export default function App() {
             phase: remoteSession.phase ?? prev.phase,
             currentCaseId: remoteSession.currentCaseId ?? prev.currentCaseId,
           }));
-        } else {
-          saveSessionConfig(defaultSession).catch(() => {});
         }
       });
 
-      unsubSubmissions = subscribeToSubmissions((rows) => setRecords(rows));
-      unsubActivations = subscribeToActivations((rows) => setActivations(rows));
+      setStaffRole(await getCurrentStaffRole());
       setLoading(false);
     }
 
@@ -1509,14 +1535,25 @@ export default function App() {
 
     return () => {
       if (unsubSession) unsubSession();
-      if (unsubSubmissions) unsubSubmissions();
-      if (unsubActivations) unsubActivations();
     };
   }, []);
 
-  async function handleResidentSubmission(record, activationId) {
-    await createSubmission(record);
-    await markActivationUsed(activationId, record.residentId);
+  useEffect(() => {
+    if (!staffRole) {
+      setRecords([]);
+      setActivations([]);
+      return undefined;
+    }
+    const unsubSubmissions = subscribeToSubmissions((rows) => setRecords(rows));
+    const unsubActivations = subscribeToActivations((rows) => setActivations(rows));
+    return () => {
+      unsubSubmissions();
+      unsubActivations();
+    };
+  }, [staffRole]);
+
+  async function handleResidentSubmission(record, access) {
+    await submitResidentRecord(record, access);
   }
 
   async function handleCreateActivation(payload) {
@@ -1532,6 +1569,25 @@ export default function App() {
     await saveSessionConfig(nextSession);
   }
 
+  async function handleStaffLogin(targetRole) {
+    const result = await signInStaff();
+    const requiredRole = targetRole === "Evaluator" ? "evaluator" : "programDirector";
+    if (result.role !== "admin" && result.role !== requiredRole) {
+      await logoutFirebase();
+      await ensureAnonymousAuth();
+      throw new Error(`This account does not have ${targetRole} access.`);
+    }
+    setStaffRole(result.role);
+    setRole(targetRole);
+  }
+
+  async function handleStaffBack() {
+    setRole("");
+    setStaffRole(null);
+    await logoutFirebase();
+    await ensureAnonymousAuth();
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 p-6">
@@ -1543,7 +1599,7 @@ export default function App() {
   }
 
   if (!role) {
-    return <RoleGateway onSelect={setRole} />;
+    return <RoleGateway onSelect={setRole} onStaffLogin={handleStaffLogin} />;
   }
 
   if (role === "Resident") {
@@ -1565,7 +1621,7 @@ export default function App() {
         setSessionRemote={setSessionRemote}
         records={records}
         activations={activations}
-        onBack={() => setRole("")}
+        onBack={handleStaffBack}
         onCreateActivation={handleCreateActivation}
         onSaveManualEvaluation={handleSaveManualEvaluation}
       />
@@ -1577,7 +1633,7 @@ export default function App() {
       session={session}
       records={records}
       activations={activations}
-      onBack={() => setRole("")}
+      onBack={handleStaffBack}
     />
   );
 }

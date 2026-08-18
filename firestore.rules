@@ -1,0 +1,129 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function anonymousResident() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    function staffRole() {
+      return signedIn()
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/crft_staff/$(request.auth.token.email))
+        ? get(/databases/$(database)/documents/crft_staff/$(request.auth.token.email)).data.role
+        : null;
+    }
+
+    function isEvaluator() {
+      return staffRole() == 'admin' || staffRole() == 'evaluator';
+    }
+
+    function isProgramDirector() {
+      return staffRole() == 'admin' || staffRole() == 'programDirector';
+    }
+
+    function isStaff() {
+      return isEvaluator() || isProgramDirector();
+    }
+
+    function validResidentId(residentId) {
+      return residentId in ['R1', 'R2', 'R3', 'R4', 'R5'];
+    }
+
+    function residentWasAdded(residentId) {
+      return !(residentId in resource.data.usedResidentIds)
+        && residentId in request.resource.data.usedResidentIds;
+    }
+
+    function matchingSubmission(residentId, accessId) {
+      let submission = getAfter(/databases/$(database)/documents/crft_submissions/$(request.resource.data.lastSubmissionId));
+      return submission.data.submissionId == request.resource.data.lastSubmissionId
+        && submission.data.activationAccessId == accessId
+        && submission.data.residentId == residentId
+        && submission.data.residentAuthUid == request.auth.uid;
+    }
+
+    function validResidentAccessUpdate(accessId) {
+      return anonymousResident()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['usedResidentIds', 'isActive', 'lastSubmissionId', 'updatedAt'])
+        && request.resource.data.usedResidentIds.size() == resource.data.usedResidentIds.size() + 1
+        && request.resource.data.usedResidentIds.toSet().difference(resource.data.allowedResidentIds.toSet()).size() == 0
+        && request.resource.data.isActive == (request.resource.data.usedResidentIds.size() < resource.data.allowedResidentIds.size())
+        && (
+          (residentWasAdded('R1') && matchingSubmission('R1', accessId))
+          || (residentWasAdded('R2') && matchingSubmission('R2', accessId))
+          || (residentWasAdded('R3') && matchingSubmission('R3', accessId))
+          || (residentWasAdded('R4') && matchingSubmission('R4', accessId))
+          || (residentWasAdded('R5') && matchingSubmission('R5', accessId))
+        );
+    }
+
+    function validResidentSubmission(submissionId) {
+      let access = get(/databases/$(database)/documents/crft_activation_access/$(request.resource.data.activationAccessId));
+      return anonymousResident()
+        && request.resource.data.submissionId == submissionId
+        && request.resource.data.residentAuthUid == request.auth.uid
+        && request.resource.data.role == 'Resident'
+        && validResidentId(request.resource.data.residentId)
+        && request.resource.data.residentId in access.data.allowedResidentIds
+        && !(request.resource.data.residentId in access.data.usedResidentIds)
+        && access.data.isActive == true
+        && request.resource.data.sessionCode == access.data.sessionCode
+        && request.resource.data.sessionDay == access.data.sessionDay
+        && request.resource.data.caseId == access.data.caseId
+        && request.resource.data.manualDomainScores == null
+        && request.resource.data.manualTotal == null
+        && request.resource.data.manualGlobalRating == null
+        && request.resource.data.manualBiasTags.size() == 0
+        && request.resource.data.manualErrorTags.size() == 0;
+    }
+
+    match /crft_staff/{uid} {
+      allow read: if signedIn() && request.auth.token.email == uid;
+      allow write: if false;
+    }
+
+    match /crft_session_config/active {
+      allow read: if signedIn();
+      allow write: if isEvaluator();
+    }
+
+    match /crft_submissions/{submissionId} {
+      allow read: if isStaff();
+      allow create: if validResidentSubmission(submissionId);
+      allow update: if isEvaluator();
+      allow delete: if false;
+    }
+
+    match /crft_activations/{activationId} {
+      allow read: if isStaff();
+      allow create: if isEvaluator();
+      allow update: if isEvaluator()
+        || (
+          anonymousResident()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedResidentIds', 'isActive', 'updatedAt'])
+          && resource.data.activationAccessId is string
+          && request.resource.data.usedResidentIds == getAfter(/databases/$(database)/documents/crft_activation_access/$(resource.data.activationAccessId)).data.usedResidentIds
+          && request.resource.data.isActive == getAfter(/databases/$(database)/documents/crft_activation_access/$(resource.data.activationAccessId)).data.isActive
+        );
+      allow delete: if false;
+    }
+
+    match /crft_activation_access/{accessId} {
+      allow get: if anonymousResident() || isStaff();
+      allow list: if isStaff();
+      allow create: if isEvaluator();
+      allow update: if isEvaluator() || validResidentAccessUpdate(accessId);
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,4 +1,4 @@
-# Resident Assessment Rubric App
+# CRFT Resident Assessment Platform
 
 A free static web app for evaluating resident clinical reasoning using a consultant-thinking rubric.
 
@@ -50,8 +50,31 @@ Simplest route:
 
 A simple workflow file is included in `.github/workflows/deploy.yml`.
 
-## Notes
+## Security model
 
-- This version stores saved assessments only in the current browser.
-- If you later want shared records across devices, add a backend such as Supabase or Firebase.
-- For a public teaching tool, this static version is the cheapest and simplest approach.
+- Residents use Firebase anonymous authentication and an assigned activation code. A SHA-256 code-derived lookup document permits only direct code validation; residents cannot list activation documents, read other submissions, or access staff data.
+- Evaluators and Program Directors sign in with Google through Firebase Authentication.
+- A matching `crft_staff/{uid}` document authorizes each staff account with role `admin`, `evaluator`, or `programDirector`.
+- Evaluators can manage the active session, activations, and manual evaluations. Program Directors have read-only access.
+- Firestore rules deny all access not explicitly granted. Existing `crft_session_config`, `crft_activations`, and `crft_submissions` documents are preserved.
+
+## One-time staff setup
+
+1. In Firebase Authentication, enable Anonymous and Google sign-in.
+2. Sign in once through CRFT with the required Google staff account so Firebase creates its Authentication user.
+3. Create `crft_staff/{Google email}` in Firestore for each staff account, with exactly one field:
+   - CRFT Administrator with access to both workspaces: `role` = `admin`
+   - Evaluator: `role` = `evaluator`
+   - Program Director: `role` = `programDirector`
+4. Never place passwords or service-account keys in this repository.
+
+## Safe deployment order
+
+Deploy the web app first, sign in as the administrator once to migrate existing activations to protected hash lookups, then deploy the security rules:
+
+```bash
+npx firebase-tools login
+npx firebase-tools deploy --only firestore:rules --project crft-c9f31
+```
+
+The project remains compatible with the Firebase Spark plan. Confirm that `crft_activation_access` contains the active CRFT-AUG26 activation before publishing the restrictive rules.
