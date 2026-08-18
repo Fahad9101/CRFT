@@ -52,6 +52,8 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['usedResidentIds', 'isActive', 'lastSubmissionId', 'updatedAt'])
         && request.resource.data.usedResidentIds.size() == resource.data.usedResidentIds.size() + 1
+        && resource.data.usedResidentIds.toSet().difference(request.resource.data.usedResidentIds.toSet()).size() == 0
+        && request.resource.data.usedResidentIds.toSet().difference(resource.data.usedResidentIds.toSet()).size() == 1
         && request.resource.data.usedResidentIds.toSet().difference(resource.data.allowedResidentIds.toSet()).size() == 0
         && request.resource.data.isActive == (request.resource.data.usedResidentIds.size() < resource.data.allowedResidentIds.size())
         && (
