@@ -14,6 +14,7 @@ import {
   subscribeToActivations,
   generateActivationCode,
 } from "./firebase";
+import { downloadStudyDataCsv } from "./studyDataCsv";
 
 // ============================================================
 // CRFT SCALABLE ROLE-STRUCTURED APP
@@ -548,6 +549,19 @@ function Button({ children, className = "", ...props }) {
   );
 }
 
+function StudyDataDownloadButton({ records, sessionCode }) {
+  return (
+    <Button
+      type="button"
+      disabled={!records.length}
+      onClick={() => downloadStudyDataCsv(records, sessionCode)}
+      className="bg-emerald-700 text-white disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      Download Study Data CSV
+    </Button>
+  );
+}
+
 function Card({ title, children, right }) {
   return (
     <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -974,7 +988,10 @@ function EvaluatorView({
                 Release resident access, control sessions, and review submissions.
               </p>
             </div>
-            <Button onClick={onBack} className="border bg-white text-slate-900">Back</Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <StudyDataDownloadButton records={records} sessionCode={session.sessionCode} />
+              <Button onClick={onBack} className="border bg-white text-slate-900">Back</Button>
+            </div>
           </div>
         </header>
 
@@ -1324,7 +1341,10 @@ function ProgramDirectorView({ session, records, activations, onBack }) {
                 Program-level dashboard with no resident submission form and no manual scoring tools.
               </p>
             </div>
-            <Button onClick={onBack} className="border bg-white text-slate-900">Back</Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <StudyDataDownloadButton records={records} sessionCode={session.sessionCode} />
+              <Button onClick={onBack} className="border bg-white text-slate-900">Back</Button>
+            </div>
           </div>
         </header>
 
