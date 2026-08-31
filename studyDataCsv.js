@@ -182,6 +182,40 @@ export function buildStudyDataCsv(records) {
   ].join("\r\n");
 }
 
+function latestStudyDayRows(records) {
+  const rows = Array.isArray(records) ? records : [];
+  const days = rows
+    .map((record) => Number(record.sessionDay))
+    .filter((day) => Number.isFinite(day));
+
+  if (!days.length) return { day: null, rows: [] };
+
+  const day = Math.max(...days);
+  return {
+    day,
+    rows: rows
+      .filter((record) => Number(record.sessionDay) === day)
+      .map(rowForRecord),
+  };
+}
+
+async function copyLatestStudyDayJson(records, sessionCode) {
+  if (!navigator?.clipboard?.writeText) return false;
+
+  const latest = latestStudyDayRows(records);
+  if (!latest.rows.length) return false;
+
+  const payload = {
+    session_code: String(sessionCode || "CRFT"),
+    session_day: latest.day,
+    record_count: latest.rows.length,
+    records: latest.rows,
+  };
+
+  await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+  return true;
+}
+
 export function downloadStudyDataCsv(records, sessionCode = "CRFT") {
   const csv = buildStudyDataCsv(records);
   if (!csv) return;
@@ -197,4 +231,17 @@ export function downloadStudyDataCsv(records, sessionCode = "CRFT") {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+
+  copyLatestStudyDayJson(records, sessionCode)
+    .then((copied) => {
+      if (copied) {
+        const latest = latestStudyDayRows(records);
+        window.alert(
+          `CSV downloaded. Day ${latest.day} study data (${latest.rows.length} records) was also copied to your clipboard. You can paste it directly into ChatGPT.`
+        );
+      }
+    })
+    .catch(() => {
+      // CSV export remains successful even if clipboard permission is unavailable.
+    });
 }
