@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CRFT Resident Feedback</title>
+    <style>
+      :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; background: #f8fafc; color: #0f172a; }
+      main { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+      .card { width: min(100%, 680px); background: #fff; border: 1px solid #e2e8f0; border-radius: 24px; box-shadow: 0 12px 36px rgba(15, 23, 42, .08); padding: 28px; }
+      h1 { margin: 0; font-size: 28px; line-height: 1.2; }
+      .lead { margin: 14px 0 0; color: #475569; line-height: 1.7; }
+      .privacy { margin: 14px 0 0; padding: 12px 14px; border-radius: 14px; background: #f1f5f9; color: #334155; font-size: 14px; line-height: 1.5; }
+      label { display: block; margin: 24px 0 10px; font-weight: 700; }
+      textarea { width: 100%; min-height: 220px; resize: vertical; border: 1px solid #cbd5e1; border-radius: 16px; padding: 16px; font: inherit; line-height: 1.55; outline: none; }
+      textarea:focus { border-color: #64748b; box-shadow: 0 0 0 3px rgba(100, 116, 139, .14); }
+      .row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+      button { border: 0; border-radius: 14px; background: #0f172a; color: #fff; padding: 12px 20px; font: inherit; font-weight: 700; cursor: pointer; }
+      button:disabled { opacity: .55; cursor: not-allowed; }
+      #status { color: #475569; font-size: 14px; }
+      .success { color: #047857 !important; }
+      .error { color: #b91c1c !important; }
+      .done { text-align: center; padding: 18px 0 4px; }
+      .done h2 { margin: 0 0 10px; font-size: 24px; }
+      @media (max-width: 520px) { .card { padding: 22px 18px; border-radius: 20px; } h1 { font-size: 24px; } textarea { min-height: 250px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card" aria-labelledby="page-title">
+        <div id="formView">
+          <h1 id="page-title">CRFT Resident Feedback</h1>
+          <p class="lead">Please share any feedback about your experience using CRFT. You can write anything you found useful, difficult, unclear, unnecessary, or that you think should be changed.</p>
+          <p class="privacy">Your response is anonymous and will not be linked to your CRFT assessments.</p>
+
+          <form id="feedbackForm">
+            <label for="feedback">Feedback</label>
+            <textarea id="feedback" maxlength="5000" required placeholder="Write anything you would like us to know..."></textarea>
+            <div class="row">
+              <button id="submitButton" type="submit">Submit feedback</button>
+              <span id="status" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+        </div>
+
+        <div id="doneView" class="done" hidden>
+          <h2>Thank you</h2>
+          <p class="lead">Your anonymous feedback has been submitted.</p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+      import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+      import { getFirestore, addDoc, collection, doc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyBz00_ifpMM2tbRBILZVU-cEvfiBqTCRMI",
+        authDomain: "crft-c9f31.firebaseapp.com",
+        projectId: "crft-c9f31",
+        storageBucket: "crft-c9f31.appspot.com",
+        messagingSenderId: "337127729938",
+        appId: "1:337127729938:web:4e44f6a65050c3d5ace1cb",
+        measurementId: "G-G1NBRQ5G9"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+      const db = getFirestore(app);
+      const form = document.getElementById("feedbackForm");
+      const feedback = document.getElementById("feedback");
+      const submitButton = document.getElementById("submitButton");
+      const status = document.getElementById("status");
+      const formView = document.getElementById("formView");
+      const doneView = document.getElementById("doneView");
+
+      if (localStorage.getItem("crft_feedback_submitted") === "1") {
+        formView.hidden = true;
+        doneView.hidden = false;
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const text = feedback.value.trim();
+        if (!text) return;
+
+        submitButton.disabled = true;
+        status.className = "";
+        status.textContent = "Submitting...";
+
+        try {
+          if (!auth.currentUser) await signInAnonymously(auth);
+
+          let sessionCode = "CRFT-AUG26";
+          try {
+            const sessionSnap = await getDoc(doc(db, "crft_session_config", "active"));
+            if (sessionSnap.exists() && sessionSnap.data().sessionCode) {
+              sessionCode = String(sessionSnap.data().sessionCode);
+            }
+          } catch {
+            // Feedback submission can still proceed with the cycle fallback label.
+          }
+
+          await addDoc(collection(db, "crft_resident_feedback"), {
+            feedback: text,
+            sessionCode,
+            createdAt: serverTimestamp()
+          });
+
+          localStorage.setItem("crft_feedback_submitted", "1");
+          feedback.value = "";
+          formView.hidden = true;
+          doneView.hidden = false;
+        } catch (error) {
+          console.error(error);
+          status.className = "error";
+          status.textContent = "Could not submit. Please try again.";
+          submitButton.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
