@@ -54,7 +54,7 @@ service cloud.firestore {
         && request.resource.data.usedResidentIds.size() == resource.data.usedResidentIds.size() + 1
         && resource.data.usedResidentIds.toSet().difference(request.resource.data.usedResidentIds.toSet()).size() == 0
         && request.resource.data.usedResidentIds.toSet().difference(resource.data.usedResidentIds.toSet()).size() == 1
-        && request.resource.data.usedResidentIds.toSet().difference(resource.data.allowedResidentIds.toSet()).size() == 0
+        && request.resource.data.usedResidentIds.toSet().difference(request.resource.data.allowedResidentIds.toSet()).size() == 0
         && request.resource.data.isActive == (request.resource.data.usedResidentIds.size() < resource.data.allowedResidentIds.size())
         && (
           (residentWasAdded('R1') && matchingSubmission('R1', accessId))
@@ -122,6 +122,19 @@ service cloud.firestore {
       allow create: if isEvaluator();
       allow update: if isEvaluator() || validResidentAccessUpdate(accessId);
       allow delete: if false;
+    }
+
+    match /crft_resident_feedback/{feedbackId} {
+      allow create: if anonymousResident()
+        && request.resource.data.keys().hasOnly(['feedback', 'sessionCode', 'createdAt'])
+        && request.resource.data.feedback is string
+        && request.resource.data.feedback.size() > 0
+        && request.resource.data.feedback.size() <= 5000
+        && request.resource.data.sessionCode is string
+        && request.resource.data.sessionCode.size() > 0
+        && request.resource.data.createdAt == request.time;
+      allow read: if isStaff();
+      allow update, delete: if false;
     }
 
     match /{document=**} {
